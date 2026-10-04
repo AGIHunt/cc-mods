@@ -5,7 +5,7 @@ import type { Fact } from './facts'
 import { queueFor, setFacts } from './facts'
 import { jump, newGame, SPECIAL } from './game'
 import { lang, langFromAppleLanguages, setLang, tr } from './i18n'
-import { ANIM_MS, chargeFrame, H, jumpFrame, stillFrame, W } from './scene'
+import { ANIM_MS, chargeFrame, H, idleMoving, jumpFrame, stillFrame, W } from './scene'
 
 const PANE = 'hop'
 const TITLE = '蹦一蹦'
@@ -40,6 +40,8 @@ const IDLE_FRAME_MS = 100
 let isShown = false
 let lastIdleFrame = 0
 let lastShownCheck = 0
+// 当前这一局是否已经结束（结束后不画待机动作）
+let isOverNow = false
 // 每局最多预排多少条冷知识
 const QUEUE = 80
 
@@ -84,6 +86,7 @@ export const register: Register = (on, options) => {
     const isStale =
       view.game !== null &&
       (!Array.isArray(view.game.factQueue) || view.game.blocks.some(b => b.fact !== null && typeof b.fact !== 'string'))
+    isOverNow = view.game?.isOver === true && !isStale
     if (!view.game || isStale) {
       const best = Number((await $.store.get('best')) ?? 0)
       const seed = Math.floor((await $.clock.now()) % 2147483647)
@@ -218,7 +221,9 @@ export const register: Register = (on, options) => {
           lastShownCheck = now
           isShown = (await $.ui.panes().catch(() => [])).some(p => p.id === PANE && p.isShown && p.isPlaced)
         }
-        if (isAnimating || (isShown && now - lastIdleFrame >= IDLE_FRAME_MS)) {
+        // 待机：只在小人眨眼、挥手的那一下重画；结束了（结算页、昵称框）就完全不重画，免得输入框边框跟着闪
+        const wantsIdle = isShown && !isOverNow && idleMoving(now) && now - lastIdleFrame >= IDLE_FRAME_MS
+        if (isAnimating || wantsIdle) {
           lastIdleFrame = now
           await $.state.set(TICK, now)
         }
@@ -254,6 +259,7 @@ export const register: Register = (on, options) => {
             startedAt: v.startedAt || v.chargeAt,
           })
           animUntil = now + ANIM_MS
+          isOverNow = result.game.isOver
           // 真的落到这块上了，它的冷知识才算看过
           const shown = result.jump.result === 'land' ? g.blocks[g.cur + 1].fact : null
           if (shown) {
@@ -443,6 +449,7 @@ export const register: Register = (on, options) => {
 
     const restart = () =>
       void $.clock.now().then(async now => {
+        isOverNow = false
         const seed = Math.floor(now % 2147483647)
         const seen = ((await $.store.get('seen')) ?? []) as string[]
         await $.state.set(VIEW, {

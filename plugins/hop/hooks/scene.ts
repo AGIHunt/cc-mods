@@ -150,11 +150,18 @@ function heroArt(p: Pose): string {
 
 // 待机小动作：呼吸、每隔几秒眨一下眼、偶尔挥挥手、眼睛看向下一块
 function idlePose(ms: number, look: number): { pose: Pose; breathe: number } {
-  const blinkT = ms % 3400
+  const blinkT = ms % BLINK_EVERY
   const blink = blinkT < 140 ? Math.sin((blinkT / 140) * Math.PI) : 0
-  const waveT = ms % 7300
+  const waveT = ms % WAVE_EVERY
   const wave = waveT < 1000 ? Math.abs(Math.sin((waveT / 1000) * Math.PI * 3)) * 5 * Math.sin((waveT / 1000) * Math.PI) : 0
-  return { pose: { blink, armL: 0, armR: wave, look }, breathe: Math.sin((ms / 1700) * Math.PI * 2) * 0.025 }
+  return { pose: { blink, armL: 0, armR: wave, look }, breathe: 0 }
+}
+
+// 待机时只有眨眼、挥手那一下需要重画；其余时间画面不动，面板也就不用重画
+const BLINK_EVERY = 3400
+const WAVE_EVERY = 7300
+export function idleMoving(ms: number): boolean {
+  return ms % BLINK_EVERY < 140 + 60 || ms % WAVE_EVERY < 1000 + 60
 }
 
 const BACKGROUND = `<defs>
@@ -211,7 +218,7 @@ function overScreen(game: Game, alpha: number): string {
   if (alpha <= 0) return ''
   return `<g opacity="${alpha.toFixed(2)}" font-family="${FONT}" text-anchor="middle">
       <rect width="${W}" height="${H}" fill="#2B2018" opacity="0.55"/>
-      <text x="${W / 2}" y="${H / 2 - 30}" font-size="15" fill="#F2E8CF">${game.lostBy === 'stay' ? tr().stayed : tr().fell}</text>
+      ${game.lostBy === 'stay' ? '' : `<text x="${W / 2}" y="${H / 2 - 30}" font-size="15" fill="#F2E8CF">${tr().fell}</text>`}
       <text x="${W / 2}" y="${H / 2 + 20}" font-size="56" font-weight="800" fill="#fff">${game.score}</text>
       <text x="${W / 2}" y="${H / 2 + 48}" font-size="13" fill="#F2E8CF">${game.score >= game.best && game.score > 0 ? tr().record : tr().best(game.best)}</text>
     </g>`
