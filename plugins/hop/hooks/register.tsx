@@ -409,9 +409,15 @@ export const register: Register = (on, options) => {
     const { Box, Text, Button } = t
     paneFocused = e.props.isFocused
     // 画布跟着面板大小走：面板越大，场景越大、看得越远；方块和小人保持原大小（不是把图片拉伸）
-    // 面板只告诉插件格数，按一格约 7.5 像素、一行约 18 像素估算，下面留出几行控件
+    // 面板只告诉插件格数，按一格约 7.5 像素、一行约 20 像素估算
+    const { value: peek = EMPTY } = await $.state.get(VIEW)
+    const { value: lbPeek = NO_BOARD } = await $.state.get(BOARD)
+    // 画面下面的控件要占几行：状态行、输入框、分数行，结束时再加排行榜
+    const controlRows = 6 + (peek.game?.isOver ? (lbPeek.joined ? 17 : 7) : 0)
     const canvasW = Math.min(1400, (e.props.bodyColumns || 60) * 7.5 - 24)
-    const canvasH = e.viewport?.rows ? Math.min(900, e.viewport.rows * 18 - 200) : 360
+    const roomH = e.viewport?.rows ? (e.viewport.rows - controlRows) * 20 : 360
+    // 不要竖着拉长：高度最多是宽度的 0.82 倍（原画面的比例）
+    const canvasH = Math.min(canvasW * 0.82, roomH, 900)
     setCanvas(canvasW, canvasH)
     const sceneW = Math.max(440, Math.round(canvasW))
     const sceneH = Math.max(360, Math.round(canvasH))
