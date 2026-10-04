@@ -1,6 +1,6 @@
 {
   "name": "hop",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "蹦一蹦：等 Claude 干活时，按住蓄力、松开起跳，在一块块方块之间跳",
   "author": {
     "name": "AGI Hunt"
@@ -25,5 +25,8 @@
       "type": "boolean",
       "default": false
     }
-  }
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/AGIHunt/cc-mods/tree/main/plugins/hop",
+  "repository": "https://github.com/AGIHunt/cc-mods"
 }

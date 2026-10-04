@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Validate marketplace
+        run: claude plugin validate .
+      - name: Validate and test every mod
+        run: |
+          set -e
+          for dir in plugins/*/ templates/*/; do
+            echo "::group::$dir"
+            claude plugin validate "$dir"
+            if ls "$dir"tests/*.test.ts* >/dev/null 2>&1; then
+              (cd "$dir" && claude plugin test .)
+            fi
+            echo "::endgroup::"
+          done
+      - name: Check hop trivia cards
+        run: node scripts/check-facts.mjs

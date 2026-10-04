@@ -1,6 +1,6 @@
 # AGI Hunt Mods
 
-AGI Hunt 出品的 [Claude Code Mods](https://code.claude.com/docs/en/plugins/mods/overview)。
+AGI Hunt 出品的 [Claude Code Mods](https://code.claude.com/docs/en/plugins/mods/overview)：在 Claude Code 里画面板、加提示、做小游戏的插件。欢迎一起来做。
 
 ## 安装
 
@@ -9,16 +9,22 @@ AGI Hunt 出品的 [Claude Code Mods](https://code.claude.com/docs/en/plugins/mo
 /plugin install hop@agihunt
 ```
 
-## 蹦一蹦（hop）
+## Mods
 
-等 Claude 干活时玩的跳一跳。在面板下方的框里按住空格蓄力，松开起跳。
+| Mod | 是什么 |
+|---|---|
+| [蹦一蹦 hop](plugins/hop) | 等 Claude 干活时玩的跳一跳，每块方块带一条 Claude Code 冷知识，可选排行榜 |
 
-- 每块方块带一条 Claude Code / AI 编程冷知识，落到哪块就弹出哪块的卡片，看过的不会重复出现
-- 音效、中英双语（跟随系统语言）
-- 可选加入 [AGI Hunt](https://agihunt.info) 排行榜：只上传昵称和成绩，随时退出并删除数据
+## 参与
 
-需要 Claude Code 桌面端（macOS）。
+- 加一条冷知识卡片：改 [`plugins/hop/data/facts.json`](plugins/hop/data/facts.json) 提 PR
+- 改进蹦一蹦：看 [plugins/hop/README.md](plugins/hop/README.md) 的代码地图
+- 做一个新 Mod：`cp -r templates/starter-mod plugins/my-mod`
+
+详细步骤、Mod 守则和桌面端踩过的坑都在 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ---
 
-A hop game to play while Claude works. Click the box under the game, hold Space to charge, release to jump. Every block carries a Claude Code / AI coding tip. Optional leaderboard on agihunt.info (nickname and scores only; leave any time). Requires the Claude Code desktop app on macOS.
+Claude Code mods by [AGI Hunt](https://agihunt.info). Install with the two commands above. Contributions welcome: new trivia cards, improvements to Hop, or brand-new mods. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
+
+[MIT License](LICENSE)

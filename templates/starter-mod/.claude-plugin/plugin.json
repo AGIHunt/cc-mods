@@ -1,0 +1,7 @@
+{
+  "name": "starter-mod",
+  "version": "0.1.0",
+  "description": "新 Mod 的起步模板：一个面板 + 一个命令 + 输入框上方的提示 / Starter: one pane, one command, one hint above the prompt",
+  "author": { "name": "Your Name" },
+  "types": "./types/index.d.ts"
+}
