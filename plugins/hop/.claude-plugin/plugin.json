@@ -1,0 +1,7 @@
+{
+  "name": "hop",
+  "version": "0.1.0",
+  "description": "蹦一蹦：等 Claude 干活时，按住蓄力、松开起跳，在一块块方块之间跳",
+  "author": { "name": "AGI Hunt" },
+  "types": "./types/index.d.ts"
+}

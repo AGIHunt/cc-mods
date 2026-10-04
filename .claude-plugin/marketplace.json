@@ -1,0 +1,12 @@
+{
+  "name": "agihunt",
+  "owner": { "name": "AGI Hunt", "url": "https://agihunt.info" },
+  "metadata": { "description": "AGI Hunt 出品的 Claude Code Mods / Claude Code mods by AGI Hunt" },
+  "plugins": [
+    {
+      "name": "hop",
+      "source": "./plugins/hop",
+      "description": "蹦一蹦：等 Claude 干活时玩的跳一跳小游戏，每块方块带一条 Claude Code 冷知识 / A hop game to play while Claude works, with a Claude Code tip on every block"
+    }
+  ]
+}
