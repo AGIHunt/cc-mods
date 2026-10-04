@@ -5,7 +5,7 @@ import type { Fact } from './facts'
 import { queueFor, setFacts } from './facts'
 import { jump, newGame, SPECIAL } from './game'
 import { lang, langFromAppleLanguages, setLang, tr } from './i18n'
-import { ANIM_MS, chargeFrame, H, idleMoving, jumpFrame, stillFrame, W } from './scene'
+import { ANIM_MS, chargeFrame, idleMoving, jumpFrame, setCanvas, stillFrame } from './scene'
 
 const PANE = 'hop'
 const TITLE = '蹦一蹦'
@@ -408,11 +408,13 @@ export const register: Register = (on, options) => {
     const t = $.ui.resolve(e)
     const { Box, Text, Button } = t
     paneFocused = e.props.isFocused
-    // 画面跟着面板大小缩放：按面板宽度（一格约 7.5 像素）和高度（一行约 18 像素，留出下面几行控件）取较小的
-    const byWidth = (e.props.bodyColumns || 60) * 7.5 - 24
-    const byHeight = e.viewport?.rows ? ((e.viewport.rows * 18 - 200) * W) / H : Infinity
-    const sceneW = Math.round(Math.max(W, Math.min(1100, byWidth, byHeight)))
-    const sceneH = Math.round((sceneW * H) / W)
+    // 画布跟着面板大小走：面板越大，场景越大、看得越远；方块和小人保持原大小（不是把图片拉伸）
+    // 面板只告诉插件格数，按一格约 7.5 像素、一行约 18 像素估算，下面留出几行控件
+    const canvasW = Math.min(1400, (e.props.bodyColumns || 60) * 7.5 - 24)
+    const canvasH = e.viewport?.rows ? Math.min(900, e.viewport.rows * 18 - 200) : 360
+    setCanvas(canvasW, canvasH)
+    const sceneW = Math.max(440, Math.round(canvasW))
+    const sceneH = Math.max(360, Math.round(canvasH))
     const { value: view = EMPTY } = await $.state.get(VIEW)
     const { value: board = NO_BOARD } = await $.state.get(BOARD)
     const { value: claude = IDLE } = await $.state.get(CLAUDE)

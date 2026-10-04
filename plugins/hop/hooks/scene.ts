@@ -4,8 +4,15 @@ import { MAX_HOLD_MS, PRESS_MIN } from './game'
 import { lang, tr } from './i18n'
 
 // 画面：等距视角
-export const W = 440
-export const H = 360
+// 画布大小（像素）：默认 440×360；面板放大时调大画布、看到更远的地方，方块和小人保持原大小
+export const BASE_W = 440
+export const BASE_H = 360
+export let W = BASE_W
+export let H = BASE_H
+export function setCanvas(w: number, h: number): void {
+  W = Math.max(BASE_W, Math.round(w))
+  H = Math.max(BASE_H, Math.round(h))
+}
 // 世界整体放大多少
 const ZOOM = 1.3
 const FONT = `-apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif`
@@ -164,14 +171,14 @@ export function idleMoving(ms: number): boolean {
   return ms % BLINK_EVERY < 140 + 60 || ms % WAVE_EVERY < 1000 + 60
 }
 
-const BACKGROUND = `<defs>
+const background = () => `<defs>
     <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#FBF3E7"/><stop offset="1" stop-color="#EBDDCB"/>
     </linearGradient>
   </defs>
   <rect width="${W}" height="${H}" fill="url(#sky)"/>
   <g fill="#fff" opacity="0.5">
-    <circle cx="60" cy="70" r="2"/><circle cx="380" cy="50" r="1.6"/><circle cx="330" cy="120" r="1.2"/><circle cx="110" cy="150" r="1.4"/>
+    <circle cx="${W * 0.14}" cy="${H * 0.19}" r="2"/><circle cx="${W * 0.86}" cy="${H * 0.14}" r="1.6"/><circle cx="${W * 0.75}" cy="${H * 0.33}" r="1.2"/><circle cx="${W * 0.25}" cy="${H * 0.42}" r="1.4"/>
   </g>`
 
 // 起跳各段的时长（秒）
@@ -182,8 +189,9 @@ const DROP_AT = FLY + 0.2
 const DROP = 0.3
 const POP = 1.0
 // 新卡片等加分飘字散了再淡入
-const CARD_AT = FLY + POP - 0.15
-const CARD_FADE = 0.25
+// 新卡片落地就淡入（加分飘字画在它上面、带白底，不会互相看不清）
+const CARD_AT = FLY
+const CARD_FADE = 0.15
 // 一跳从松手到画面完全停下要多久（毫秒）
 export const ANIM_MS = Math.round((Math.max(PAN_AT + PAN, DROP_AT + DROP, FLY + POP, CARD_AT + CARD_FADE) + 0.05) * 1000)
 
@@ -251,7 +259,7 @@ function layered(blocks: Block[], depth: number, me: string, draw: (b: Block) =>
 
 function frame(camera: Pt, world: string, over: string, tag: string): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><!--${tag}-->
-    ${BACKGROUND}
+    ${background()}
     <g transform="translate(${f1(camera[0])} ${f1(camera[1])}) scale(${ZOOM})">${world}</g>
     ${over}
   </svg>`
@@ -331,8 +339,11 @@ function factCard(id: string | null, anchor: Pt, side: 'left' | 'right', alpha: 
   const l = lang()
   const lines = wrap(f[l], 29).slice(0, 6)
   const h = 40 + lines.length * 17
-  const x = side === 'left' ? 12 : W - CARD_W - 12
-  const y = side === 'left' ? 88 : 14
+  // 卡片放在方块旁边（下一块的反方向），超出画布就往里收；左上角留给分数
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+  const x = clamp(side === 'left' ? anchor[0] - CARD_W - 50 : anchor[0] + 50, 12, W - CARD_W - 12)
+  const top = x < 150 ? 88 : 14
+  const y = clamp(anchor[1] - h - 60, top, H - h - 12)
   const ex = side === 'left' ? x + CARD_W : x
   const ey = y + h - 12
   const bits = qrBits(f.id)
@@ -473,9 +484,14 @@ export function jumpFrame(before: Game, after: Game, j: Jump, ms: number, clockM
     const rise = 26 * p
     const px = camera[0] + ex * ZOOM
     const py = camera[1] + (ey - rise) * ZOOM
+    const main = `+${j.gained}`
+    const mainSize = j.isPerfect ? 26 : 21
+    const mainW = main.length * mainSize * 0.62 + 16
+    const labelW = j.label ? [...j.label].reduce((a, ch) => a + (ch.charCodeAt(0) > 0x2e80 ? 14 : 8), 0) + 16 : 0
     pop = `<g font-family="${FONT}" font-weight="800" text-anchor="middle" opacity="${a.toFixed(2)}">
-      <text x="${f1(px)}" y="${f1(py - 44)}" font-size="${j.isPerfect ? 26 : 21}" fill="${j.isPerfect ? '#E76F51' : '#6B5444'}" stroke="#FFFDF8" stroke-width="3" paint-order="stroke">+${j.gained}</text>
-      ${j.label ? `<text x="${f1(px)}" y="${f1(py - 70)}" font-size="14" fill="#6B5444" stroke="#FFFDF8" stroke-width="3" paint-order="stroke">${esc(j.label)}</text>` : ''}
+      <rect x="${f1(px - mainW / 2)}" y="${f1(py - 44 - mainSize)}" width="${f1(mainW)}" height="${mainSize + 8}" rx="${(mainSize + 8) / 2}" fill="#FFFDF8" opacity="0.92"/>
+      <text x="${f1(px)}" y="${f1(py - 44)}" font-size="${mainSize}" fill="${j.isPerfect ? '#E76F51' : '#6B5444'}">${main}</text>
+      ${j.label ? `<rect x="${f1(px - labelW / 2)}" y="${f1(py - 70 - 15)}" width="${f1(labelW)}" height="21" rx="10.5" fill="#FFFDF8" opacity="0.92"/><text x="${f1(px)}" y="${f1(py - 70)}" font-size="14" fill="#6B5444">${esc(j.label)}</text>` : ''}
     </g>`
     if (j.isPerfect && after1 < 0.6) {
       const r = after1 / 0.6
