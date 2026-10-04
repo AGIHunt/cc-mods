@@ -100,7 +100,7 @@ export function setFacts(list: Fact[]): void {
   for (const f of list) byId.set(f.id, f)
 }
 
-export const factById = (id: string | null): Fact | null => (id === null ? null : (byId.get(id) ?? null))
+export const factById = (id: string | null): Fact | null => (typeof id === 'string' ? (byId.get(id) ?? null) : null)
 
 // 新开一局用的队列：没看过的随机排；全看过了就重新开始一轮
 export function queueFor(seen: readonly string[], seed: number): string[] {

@@ -80,7 +80,11 @@ export const register: Register = (on, options) => {
     const delay = await $.process.run(['defaults', 'read', '-g', 'InitialKeyRepeat']).catch(() => null)
     const ticks = Number(delay?.stdout.trim())
     repeatDelayMs = Number.isFinite(ticks) && ticks > 0 ? ticks * 15 : 450
-    if (!view.game) {
+    // 热重载会保留上一版的存档；格式对不上（旧版方块的冷知识是数字编号、没有冷知识队列）就重开一局
+    const isStale =
+      view.game !== null &&
+      (!Array.isArray(view.game.factQueue) || view.game.blocks.some(b => b.fact !== null && typeof b.fact !== 'string'))
+    if (!view.game || isStale) {
       const best = Number((await $.store.get('best')) ?? 0)
       const seed = Math.floor((await $.clock.now()) % 2147483647)
       const seen = ((await $.store.get('seen')) ?? []) as string[]
@@ -386,6 +390,8 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    // 画面板出了错就把原因直接画出来，免得桌面端只显示一句「Nothing to show yet」
+    try {
     const t = $.ui.resolve(e)
     const { Box, Text, Button } = t
     const { value: view = EMPTY } = await $.state.get(VIEW)
@@ -552,5 +558,9 @@ export const register: Register = (on, options) => {
         </Box>
       </Box>
     )
+    } catch (err) {
+      const { Text } = $.ui.resolve(e)
+      return <Text color="#E63946">hop: {String(err).slice(0, 400)}</Text>
+    }
   })
 }

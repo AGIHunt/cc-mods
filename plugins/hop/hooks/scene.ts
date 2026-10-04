@@ -99,7 +99,7 @@ function qrCell(r: number, c: number, bits: boolean[]): boolean {
 }
 
 function qr(b: Block, color: string): string {
-  if (!b.fact) return ''
+  if (typeof b.fact !== 'string' || !b.fact) return ''
   const bits = qrBits(b.fact)
   const span = b.half * (b.kind === 'cube' ? 1.05 : 0.95)
   const cell = span / 7
