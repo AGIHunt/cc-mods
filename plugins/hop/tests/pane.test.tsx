@@ -56,3 +56,27 @@ test('after the jump plays, the scene settles to a still frame', async ($, on) =
   console.log('after settle: still frame', s.includes('still 1'), !s.includes('jump 1'))
   expect(s.includes('still 1')).toBe(true)
 })
+
+test('leaderboard: join after a lost round submits the score and shows the board', async ($, on) => {
+  const calls: string[] = []
+  on('http.fetch', async (_, e) => {
+    const { url, init } = e as unknown as { url: string; init?: { method?: string; body?: string } }
+    calls.push(`${init?.method ?? 'GET'} ${url.replace('https://agihunt.info/agent/v1/hop', '')}`)
+    if (url.includes('/leaderboard')) {
+      return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ entries: [{ rank: 1, nickname: '跳跳王', score: 9, is_me: true }], me: { rank: 1, score: 9 } }) } } as never
+    }
+    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ ok: true, nickname: '跳跳王' }) } } as never
+  })
+  const { clock, ui } = await setup($, on)
+  // 轻点一下：短跳落回原地，判输
+  await ui.input({ key: 'pad-0', text: ' ', kind: 'change' } as never)
+  await clock.advance(2500)
+  let s = JSON.stringify(await ui.drawn())
+  console.log('over, invite shown', s.includes('lb-nick'))
+  await ui.input({ key: 'lb-nick', text: '跳跳王', kind: 'submit' } as never)
+  await clock.advance(100)
+  s = JSON.stringify(await ui.drawn())
+  console.log('calls', calls.join(' | '))
+  console.log('board shows me', s.includes('跳跳王'), s.includes('tab-week'))
+  expect(calls.some(c => c.startsWith('PUT /player'))).toBe(true)
+})

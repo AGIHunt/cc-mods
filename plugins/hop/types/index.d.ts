@@ -28,6 +28,8 @@ export type Game = {
   lostBy: 'fall' | 'stay' | null
   // 接下来的方块依次用哪些冷知识（新开一局时从没看过的里随机排好）
   factQueue: string[]
+  // 完美落地次数（上报排行榜用）
+  perfects: number
 }
 
 export type Jump = {
@@ -58,6 +60,23 @@ export type View = {
   // 开始蓄力、起跳的时刻：每一帧按「现在离它多久」算画面
   chargeAt: number
   jumpAt: number
+  // 这一局第一次按下的时刻（上报时长用）
+  startedAt: number
+}
+
+export type BoardTab = 'today' | 'week' | 'all'
+export type BoardEntry = { rank: number; nickname: string; score: number; isMe: boolean }
+
+// 排行榜：自愿加入；没加入时什么都不上报
+export type Board = {
+  joined: boolean
+  nickname: string
+  tab: BoardTab
+  entries: BoardEntry[]
+  me: { rank: number; score: number } | null
+  // 连不上、昵称不合规这类提示
+  status: string
+  busy: boolean
 }
 
 declare module 'claude-code' {
@@ -66,6 +85,7 @@ declare module 'claude-code' {
       view: View
       // 动画帧计数：按住和起跳期间每帧加一，面板读它来逐帧重画
       tick: number
+      board: Board
     }
   }
 }

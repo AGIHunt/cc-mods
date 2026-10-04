@@ -63,7 +63,7 @@ function nextBlock(game: Game, from: Block): Block {
 
 export function newGame(seed: number, best: number, factQueue: string[] = []): Game {
   const first: Block = { gx: 0, gy: 0, half: 28, height: 26, kind: 'cube', color: '#F2E8CF', dir: 'x', fact: null }
-  const game: Game = { blocks: [first], cur: 0, score: 0, combo: 0, best, seed, isOver: false, jumps: 0, at: null, lostBy: null, factQueue: [...factQueue] }
+  const game: Game = { blocks: [first], cur: 0, score: 0, combo: 0, best, seed, isOver: false, jumps: 0, at: null, lostBy: null, factQueue: [...factQueue], perfects: 0 }
   game.blocks.push(nextBlock(game, first))
   return game
 }
@@ -103,6 +103,7 @@ export function jump(prev: Game, holdMs: number): { game: Game; jump: Jump } {
   if (onTop(target, land.gx, land.gy)) {
     const isPerfect = toCenter <= Math.max(4, target.half * 0.25)
     game.combo = isPerfect ? game.combo + 1 : 0
+    if (isPerfect) game.perfects += 1
     let gained = isPerfect ? 2 * game.combo : 1
     const t = tr()
     let label = isPerfect ? (game.combo > 1 ? t.perfectN(game.combo) : t.perfect) : ''
