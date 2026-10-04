@@ -42,6 +42,8 @@ let lastIdleFrame = 0
 let lastShownCheck = 0
 // 当前这一局是否已经结束（结束后不画待机动作）
 let isOverNow = false
+// 面板此刻是否握着键盘（你正在玩）：这时不画待机小动作，免得面板重画让输入框边框跟着闪
+let paneFocused = false
 // 每局最多预排多少条冷知识
 const QUEUE = 80
 
@@ -222,7 +224,7 @@ export const register: Register = (on, options) => {
           isShown = (await $.ui.panes().catch(() => [])).some(p => p.id === PANE && p.isShown && p.isPlaced)
         }
         // 待机：只在小人眨眼、挥手的那一下重画；结束了（结算页、昵称框）就完全不重画，免得输入框边框跟着闪
-        const wantsIdle = isShown && !isOverNow && idleMoving(now) && now - lastIdleFrame >= IDLE_FRAME_MS
+        const wantsIdle = isShown && !isOverNow && !paneFocused && idleMoving(now) && now - lastIdleFrame >= IDLE_FRAME_MS
         if (isAnimating || wantsIdle) {
           lastIdleFrame = now
           await $.state.set(TICK, now)
@@ -405,6 +407,12 @@ export const register: Register = (on, options) => {
     try {
     const t = $.ui.resolve(e)
     const { Box, Text, Button } = t
+    paneFocused = e.props.isFocused
+    // 画面跟着面板大小缩放：按面板宽度（一格约 7.5 像素）和高度（一行约 18 像素，留出下面几行控件）取较小的
+    const byWidth = (e.props.bodyColumns || 60) * 7.5 - 24
+    const byHeight = e.viewport?.rows ? ((e.viewport.rows * 18 - 200) * W) / H : Infinity
+    const sceneW = Math.round(Math.max(W, Math.min(1100, byWidth, byHeight)))
+    const sceneH = Math.round((sceneW * H) / W)
     const { value: view = EMPTY } = await $.state.get(VIEW)
     const { value: board = NO_BOARD } = await $.state.get(BOARD)
     const { value: claude = IDLE } = await $.state.get(CLAUDE)
@@ -486,7 +494,7 @@ export const register: Register = (on, options) => {
           </Box>
         )}
         {/* 不加 isInteractive：当普通图片显示，换图不闪 */}
-        <t.Svg source={svg} alt={`蹦一蹦，当前 ${game.score} 分`} width={W} height={H} />
+        <t.Svg source={svg} alt={`蹦一蹦，当前 ${game.score} 分`} width={sceneW} height={sceneH} />
         <Box flexDirection="row" gap={1} alignItems="center">
           {game.isOver ? (
              <Button key="restart" label={tr().restart} hotkey={board.joined ? 'r' : undefined} variant="primary" autoFocus onPress={restart} />
@@ -503,7 +511,7 @@ export const register: Register = (on, options) => {
               />
             </Box>
           )}
-          <Text dimColor>{view.hint || tr().hintIdle}</Text>
+          <Text dimColor>{view.hint}</Text>
         </Box>
         {game.isOver && (
           <Box flexDirection="column" borderStyle="round" borderDimColor paddingX={1}>
