@@ -67,6 +67,15 @@ export type View = {
 export type BoardTab = 'today' | 'week' | 'all'
 export type BoardEntry = { rank: number; nickname: string; score: number; isMe: boolean }
 
+// Claude 这边在干什么：决定提示条和面板顶上那行
+export type ClaudeStatus = {
+  busy: boolean
+  needsYou: boolean
+  done: boolean
+  // 输入框上方的「蹦一蹦」提示是否该出现
+  hint: boolean
+}
+
 // 排行榜：自愿加入；没加入时什么都不上报
 export type Board = {
   joined: boolean
@@ -86,6 +95,7 @@ declare module 'claude-code' {
       // 动画帧计数：按住和起跳期间每帧加一，面板读它来逐帧重画
       tick: number
       board: Board
+      claude: ClaudeStatus
     }
   }
 }

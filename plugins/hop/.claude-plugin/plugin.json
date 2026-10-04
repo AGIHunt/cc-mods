@@ -1,7 +1,29 @@
 {
   "name": "hop",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "蹦一蹦：等 Claude 干活时，按住蓄力、松开起跳，在一块块方块之间跳",
-  "author": { "name": "AGI Hunt" },
-  "types": "./types/index.d.ts"
+  "author": {
+    "name": "AGI Hunt"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "autoHint": {
+      "title": "Claude 干活时提示 / Hint while Claude works",
+      "description": "Claude 一轮跑了一会儿，在输入框上方提示可以玩一局 / Show a hint above the prompt when a turn runs for a while",
+      "type": "boolean",
+      "default": true
+    },
+    "hintAfterSeconds": {
+      "title": "多少秒后提示 / Hint after (seconds)",
+      "description": "一轮开始多少秒后出现提示 / Seconds into a turn before the hint shows",
+      "type": "number",
+      "default": 5
+    },
+    "autoOpen": {
+      "title": "自动打开面板 / Open the pane by itself",
+      "description": "到时间直接打开游戏面板，而不只是提示 / Open the game pane instead of only hinting",
+      "type": "boolean",
+      "default": false
+    }
+  }
 }

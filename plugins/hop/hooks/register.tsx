@@ -1,6 +1,6 @@
 import type { Register } from 'claude-code'
 
-import type { Board, BoardEntry, BoardTab, Game, View } from '../types'
+import type { Board, BoardEntry, BoardTab, ClaudeStatus, Game, View } from '../types'
 import type { Fact } from './facts'
 import { queueFor, setFacts } from './facts'
 import { jump, newGame, SPECIAL } from './game'
@@ -12,6 +12,8 @@ const TITLE = '蹦一蹦'
 const VIEW = { plugin: 'hop', key: 'view' } as const
 const TICK = { plugin: 'hop', key: 'tick' } as const
 const BOARD = { plugin: 'hop', key: 'board' } as const
+const CLAUDE = { plugin: 'hop', key: 'claude' } as const
+const IDLE: ClaudeStatus = { busy: false, needsYou: false, done: false, hint: false }
 const EMPTY: View = { game: null, before: null, phase: 'idle', jump: null, hint: '', pad: 0, chargeAt: 0, jumpAt: 0, startedAt: 0 }
 const NO_BOARD: Board = { joined: false, nickname: '', tab: 'today', entries: [], me: null, status: '', busy: false }
 
@@ -53,13 +55,24 @@ type Lb = {
 }
 // session.start 里建好，渲染时的按钮也用它
 let lb: Lb | null = null
+
+// 出现时机：Claude 一轮跑了几秒还没完，才在输入框上方提示；需要你时让开；闲着时不出现。
+// 全程只画界面、只观察事件，不往对话里写任何东西。
+type Options = { autoHint?: boolean; hintAfterSeconds?: number; autoOpen?: boolean }
+let opts: Options = {}
+let turnStart = 0
+let hinted = false
+let hintMuted = false
+// 刚输入了 /hop：用来认出它前面那行说明
+let hopPending = false
 let chargeSound: { return?: (v?: undefined) => unknown } | null = null
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  opts = (options ?? {}) as Options
   on('session.start', async ($, e, next) => {
     const langs = await $.process.run(['defaults', 'read', '-g', 'AppleLanguages']).catch(() => null)
     setLang(langFromAppleLanguages(langs?.stdout ?? ''))
-    await $.command.register({ name: 'hop', description: tr().command })
+    await $.command.register({ name: 'hop', description: tr().command, immediate: true })
     const data = await $.fs.read(`${$.plugin.root}/data/facts.json`).catch(() => null)
     if (data) setFacts(JSON.parse(data) as Fact[])
     const { value: view = EMPTY } = await $.state.get(VIEW)
@@ -187,6 +200,15 @@ export const register: Register = on => {
     $.clock.every(FRAME_MS, () => {
       void $.clock.now().then(async now => {
         // 用状态驱动重画（和按键触发的重画走同一条路，不会丢键盘焦点）
+        const after = (opts.hintAfterSeconds ?? 5) * 1000
+        if (turnStart !== 0 && !hinted && now - turnStart >= after) {
+          hinted = true
+          const { value: c = IDLE } = await $.state.get(CLAUDE)
+          if (c.busy && !c.needsYou && (opts.autoHint ?? true) && !hintMuted) {
+            if (opts.autoOpen) void $.ui.open({ id: PANE, title: TITLE }).catch(() => undefined)
+            else await $.state.set(CLAUDE, { ...c, hint: true })
+          }
+        }
         const isAnimating = holdStart !== 0 || now < animUntil + 2 * FRAME_MS
         if (now - lastShownCheck > 1000) {
           lastShownCheck = now
@@ -269,19 +291,98 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'hop' }, async $ => {
-    const opened = await $.ui.open({ id: PANE, title: TITLE, focus: true })
-
-    return {
-      text: opened.isPlaced ? tr().opened : `${tr().notOpened}${opened.reason}`,
+  // /hop 本身会在对话里留两行（Claude Code 的说明 + 命令名），模型下一轮读得到。
+  // 这两行的内容清空：它们只是打开游戏面板的记录，对 Claude 没有用。
+  on('session.append', async ($, e, next) => {
+    if (e.door !== 'command') return next(e)
+    const text = JSON.stringify(e.message.content)
+    const isHop = text.includes('<command-name>/hop</command-name>')
+    if (isHop || (text.includes('local-command-caveat') && hopPending)) {
+      if (isHop) hopPending = false
+      return next({ ...e, message: { ...e.message, content: [] } })
     }
+    return next(e)
+  })
+
+  on('command.run', { command: 'hop' }, async $ => {
+    // 命令先运行、后入对话记录：先记一笔，下面 session.append 认出这一次的两行
+    hopPending = true
+    await $.ui.open({ id: PANE, title: TITLE, focus: true })
+    // 不回任何文字，免得在对话里留一行
+    return {}
+  })
+
+  // 一轮开始：开始计时，几秒后再决定要不要提示
+  on('turn.start', async ($, e, next) => {
+    turnStart = await $.clock.now()
+    hinted = false
+    hopPending = false
+    await $.state.set(CLAUDE, { busy: true, needsYou: false, done: false, hint: false })
+    return next(e)
+  })
+
+  // Claude 停下来等你（要授权、在问你问题）：提示条让开，面板顶上提醒你回去
+  on('classic.Notification', async ($, e, next) => {
+    const { value: c = IDLE } = await $.state.get(CLAUDE)
+    if (c.busy) {
+      await $.state.set(CLAUDE, { ...c, needsYou: true, hint: false })
+      const panes = await $.ui.panes().catch(() => [])
+      if (panes.some(p => p.id === PANE && p.isPlaced)) $.ui.toast(tr().needsYou)
+    }
+    return next(e)
+  })
+
+  on('classic.PermissionRequest', async ($, e, next) => {
+    const { value: c = IDLE } = await $.state.get(CLAUDE)
+    if (c.busy && !c.needsYou) await $.state.set(CLAUDE, { ...c, needsYou: true, hint: false })
+    return next(e)
+  })
+
+  // 你处理完、Claude 接着跑工具了：清掉「在等你」
+  on('tool.call', async ($, e, next) => {
+    const { value: c = IDLE } = await $.state.get(CLAUDE)
+    if (c.needsYou) await $.state.set(CLAUDE, { ...c, needsYou: false })
+    return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
-    const panes = await $.ui.panes()
+    turnStart = 0
+    await $.state.set(CLAUDE, { busy: false, needsYou: false, done: true, hint: false })
+    const panes = await $.ui.panes().catch(() => [])
     if (panes.some(p => p.id === PANE && p.isPlaced)) $.ui.toast(tr().toastDone)
 
     return next(e)
+  })
+
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const { value: c = IDLE } = await $.state.get(CLAUDE)
+    if (!c.hint || c.needsYou || !c.busy || hintMuted || e.props.hasSurvey) return next(e)
+    const panes = await $.ui.panes().catch(() => [])
+    if (panes.some(p => p.id === PANE && p.isPlaced)) return next(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="row" gap={1} alignItems="center">
+        <Text dimColor>{tr().bandBusy}</Text>
+        <Button
+          key="hop-open"
+          label={tr().bandPlay}
+          variant="primary"
+          onPress={() =>
+            void $.ui.open({ id: PANE, title: TITLE, focus: true }).then(() => $.state.set(CLAUDE, { ...c, hint: false }))
+          }
+        />
+        <Button
+          key="hop-mute"
+          label={tr().bandMute}
+          plain
+          dimColor
+          onPress={() => {
+            hintMuted = true
+            void $.state.set(CLAUDE, { ...c, hint: false })
+          }}
+        />
+      </Box>
+    )
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
@@ -289,6 +390,7 @@ export const register: Register = on => {
     const { Box, Text, Button } = t
     const { value: view = EMPTY } = await $.state.get(VIEW)
     const { value: board = NO_BOARD } = await $.state.get(BOARD)
+    const { value: claude = IDLE } = await $.state.get(CLAUDE)
     const game = view.game
 
     if (!game) return <Text dimColor>{tr().loading}</Text>
@@ -347,6 +449,24 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column" gap={1}>
+        {(claude.needsYou || claude.done) && (
+          <Box flexDirection="row" justifyContent="space-between" alignItems="center">
+            <Text bold color={claude.needsYou ? '#E63946' : '#2A9D8F'}>
+              {claude.needsYou ? tr().needsYou : tr().doneNow}
+            </Text>
+            <Button
+              key="back"
+              label={tr().backToClaude}
+              plain
+              onPress={() =>
+                void $.state
+                  .set(CLAUDE, { ...claude, done: false })
+                  .then(() => $.ui.close({ id: PANE }))
+                  .catch(() => undefined)
+              }
+            />
+          </Box>
+        )}
         {/* 不加 isInteractive：当普通图片显示，换图不闪 */}
         <t.Svg source={svg} alt={`蹦一蹦，当前 ${game.score} 分`} width={W} height={H} />
         <Box flexDirection="row" gap={1} alignItems="center">

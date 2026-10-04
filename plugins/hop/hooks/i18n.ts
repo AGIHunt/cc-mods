@@ -39,6 +39,12 @@ const STRINGS = {
     lbLoading: '正在加载排行榜……',
     lbBadNick: '这个昵称不能用，换一个吧',
     lbTooFast: '太快了，稍后再试',
+    bandBusy: 'Claude 还在干活',
+    bandPlay: '蹦一蹦',
+    bandMute: '本会话不再提示',
+    needsYou: 'Claude 在等你',
+    doneNow: 'Claude 干完了',
+    backToClaude: '回到 Claude',
   },
   en: {
     command: 'Hop: a little game to play while Claude works',
@@ -76,6 +82,12 @@ const STRINGS = {
     lbLoading: 'Loading leaderboard…',
     lbBadNick: 'That nickname is not allowed. Try another',
     lbTooFast: 'Too fast. Try again in a moment',
+    bandBusy: 'Claude is still working',
+    bandPlay: 'Play Hop',
+    bandMute: 'Not this session',
+    needsYou: 'Claude needs you',
+    doneNow: 'Claude is done',
+    backToClaude: 'Back to Claude',
   },
 }
 
