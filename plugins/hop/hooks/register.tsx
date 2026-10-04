@@ -247,12 +247,17 @@ export const register: Register = (on, options) => {
         if (!g || g.isOver) return
         {
           const result = jump(g, held)
+          // 第一次落到特殊方块：提示一次它们有额外加分，之后不再提示
+          const landedSpecial = result.jump.result === 'land' && g.blocks[g.cur + 1].kind in SPECIAL
+          const specialExplained = (await $.store.get('specialExplained')) === true
+          if (landedSpecial && !specialExplained) await $.store.set('specialExplained', true)
           await $.state.set(VIEW, {
             game: result.game,
             before: g,
             phase: 'jump',
             jump: result.jump,
-            hint: tr().held((held / 1000).toFixed(2)),
+            hint:
+              landedSpecial && !specialExplained ? tr().specialHint : tr().held((held / 1000).toFixed(2)),
             pad,
             chargeAt: v.chargeAt,
             jumpAt: now,
