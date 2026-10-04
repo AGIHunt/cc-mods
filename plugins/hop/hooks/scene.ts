@@ -259,24 +259,66 @@ function frame(camera: Pt, world: string, over: string, tag: string): string {
 
 const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-// 按显示宽度折行：中文一个字算 2，英文按单词
-function wrap(text: string, max: number): string[] {
+// 按显示宽度折行（中文一个字算 2，英文和数字算 1）：
+// 英文单词、数字、版本号、命令这类连续的半角串不拆开；逗号句号、右引号右括号不放行首；左引号左括号不留行尾
+const NO_START = new Set([...'。，、；：！？）」』》〉】.,;:!?)'])
+const NO_END = new Set([...'（「『《〈【('])
+const widthOf = (t: string) => [...t].reduce((a, ch) => a + (ch.charCodeAt(0) > 0x2e80 ? 2 : 1), 0)
+
+export function wrap(text: string, max: number): string[] {
+  const tokens = text.match(/[A-Za-z0-9_.+#/@:'%$~=-]+|\s+|./gsu) ?? []
   const lines: string[] = []
   let line = ''
   let w = 0
-  const tokens = lang() === 'zh' ? [...text] : text.split(/(\s+)/)
+  const flush = () => {
+    if (line.trim()) lines.push(line.trim())
+    line = ''
+    w = 0
+  }
   for (const tok of tokens) {
-    const tw = [...tok].reduce((a, ch) => a + (ch.charCodeAt(0) > 0x2e80 ? 2 : 1), 0)
+    const tw = widthOf(tok)
+    if (/^\s+$/.test(tok)) {
+      if (w > 0 && w + 1 <= max) {
+        line += ' '
+        w += 1
+      }
+      continue
+    }
     if (w + tw > max && line.trim()) {
-      lines.push(line.trim())
-      line = ''
-      w = 0
-      if (/^\s+$/.test(tok)) continue
+      // 标点不放行首：挂在上一行末尾，宁可略微超出
+      if (NO_START.has(tok)) {
+        line += tok
+        w += tw
+        continue
+      }
+      // 左引号、左括号不留在行尾：带到下一行
+      const last = [...line].pop() ?? ''
+      if (NO_END.has(last)) {
+        line = line.slice(0, -last.length)
+        flush()
+        line = last
+        w = widthOf(last)
+      } else {
+        flush()
+      }
+    }
+    // 单个半角串比一整行还长（很长的路径、网址），只好硬切
+    if (tw > max) {
+      let rest = tok
+      while (widthOf(rest) > max - w) {
+        const cut = Math.max(1, max - w)
+        line += rest.slice(0, cut)
+        rest = rest.slice(cut)
+        flush()
+      }
+      line += rest
+      w += widthOf(rest)
+      continue
     }
     line += tok
     w += tw
   }
-  if (line.trim()) lines.push(line.trim())
+  flush()
   return lines
 }
 
@@ -287,7 +329,7 @@ function factCard(id: string | null, anchor: Pt, side: 'left' | 'right', alpha: 
   const f = factById(id)
   if (!f || alpha <= 0) return ''
   const l = lang()
-  const lines = wrap(f[l], 30).slice(0, 6)
+  const lines = wrap(f[l], 29).slice(0, 6)
   const h = 40 + lines.length * 17
   const x = side === 'left' ? 12 : W - CARD_W - 12
   const y = side === 'left' ? 88 : 14
@@ -302,7 +344,7 @@ function factCard(id: string | null, anchor: Pt, side: 'left' | 'right', alpha: 
       <rect x="${x + 1}" y="${y + 2}" width="${CARD_W}" height="${h}" rx="10" fill="#5B4636" opacity="0.10"/>
       <rect x="${x}" y="${y}" width="${CARD_W}" height="${h}" rx="10" fill="#FFFDF8" stroke="#EADBC8"/>
       <g fill="#D97757">${icon}</g>
-      <text x="${x + 32}" y="${y + 23}" font-size="11.5" font-weight="700" fill="#D97757">${esc(f.tag[l])}</text>
+      <text x="${x + 32}" y="${y + 23}" font-size="11.5" font-weight="700" fill="#D97757">${esc(f.tag[l])}${f.surface && f.surface !== 'all' && tr().surface[f.surface] ? `<tspan fill="#8C7A6B" font-weight="400"> · ${esc(tr().surface[f.surface])}</tspan>` : ''}</text>
       ${lines.map((t, i) => `<text x="${x + 12}" y="${y + 44 + i * 17}" font-size="12" fill="#3D2E22">${esc(t)}</text>`).join('')}
     </g>`
 }

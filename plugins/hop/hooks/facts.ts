@@ -1,7 +1,8 @@
 // 方块上的冷知识卡片。完整题库在 data/facts.json（启动时读入），这里的内置几条是读不到题库时的后备。
 // 轮播：玩家真正「落到过」的冷知识记为看过；新开一局时从没看过的里面随机排一队，全看完才重来。
 
-export type Fact = { id: string; tag: { zh: string; en: string }; zh: string; en: string }
+// surface：这条只在哪个端成立；all 或不写就是通用
+export type Fact = { id: string; tag: { zh: string; en: string }; zh: string; en: string; surface?: string }
 
 export const BUILTIN: Fact[] = [
   {

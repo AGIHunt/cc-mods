@@ -33,12 +33,18 @@ function nextBlock(game: Game, from: Block): Block {
     seed = s
     return v
   }
-  // 越往后方块越小、间距越大
-  const level = Math.min(game.score, 60) / 60
-  // 开头几跳给大块、近距离，先让人找到手感
+  // 难度按跳了几块来算（不按分数，连击加分太快会让难度跳着涨）：
+  // 前 3 跳是热身大块；之后到第 45 跳左右，方块从 27 缩到 13、间距越拉越大；
+  // 过了一半，偶尔冒出特别小的块（半径 10），跳中允许的按键误差约 ±0.1 秒
+  const level = Math.min(game.jumps, 45) / 45
   const isWarmup = game.jumps < 3
-  const half = isWarmup ? 29 + roll() * 3 : Math.max(13, 27 - level * 11 + (roll() - 0.5) * 7)
-  const gap = isWarmup ? 8 + roll() * 10 : 10 + roll() * (22 + level * 46)
+  const isTiny = !isWarmup && level > 0.5 && roll() < 0.12 + 0.1 * level
+  const half = isWarmup
+    ? 29 + roll() * 3
+    : isTiny
+      ? 10 + roll() * 1.5
+      : Math.max(11, 27 - level * 14 + (roll() - 0.5) * 7)
+  const gap = isWarmup ? 8 + roll() * 10 : 10 + roll() * (20 + level * 60)
   const dir = roll() < 0.5 ? 'x' : 'y'
   const dist = from.half + half + gap
   const special = roll()
