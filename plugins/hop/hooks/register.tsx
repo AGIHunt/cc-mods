@@ -1,8 +1,10 @@
 import type { Register } from 'claude-code'
 
 import type { View } from '../types'
-import { FACTS } from './facts'
+import type { Fact } from './facts'
+import { queueFor, setFacts } from './facts'
 import { jump, newGame, SPECIAL } from './game'
+import { langFromAppleLanguages, setLang, tr } from './i18n'
 import { ANIM_MS, chargeFrame, H, jumpFrame, stillFrame, W } from './scene'
 
 const PANE = 'hop'
@@ -29,11 +31,22 @@ let animUntil = 0
 const FLY_MS = 450
 const VOLUME = '0.6'
 let muted = false
+// 待机时也画小动作（呼吸、眨眼、挥手），但只在面板露着的时候，大约每秒 10 帧
+const IDLE_FRAME_MS = 100
+let isShown = false
+let lastIdleFrame = 0
+let lastShownCheck = 0
+// 每局最多预排多少条冷知识
+const QUEUE = 80
 let chargeSound: { return?: (v?: undefined) => unknown } | null = null
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'hop', description: '蹦一蹦：等 Claude 的时候跳几下' })
+    const langs = await $.process.run(['defaults', 'read', '-g', 'AppleLanguages']).catch(() => null)
+    setLang(langFromAppleLanguages(langs?.stdout ?? ''))
+    await $.command.register({ name: 'hop', description: tr().command })
+    const data = await $.fs.read(`${$.plugin.root}/data/facts.json`).catch(() => null)
+    if (data) setFacts(JSON.parse(data) as Fact[])
     const { value: view = EMPTY } = await $.state.get(VIEW)
     muted = (await $.store.get('muted')) === true
     const delay = await $.process.run(['defaults', 'read', '-g', 'InitialKeyRepeat']).catch(() => null)
@@ -42,7 +55,8 @@ export const register: Register = on => {
     if (!view.game) {
       const best = Number((await $.store.get('best')) ?? 0)
       const seed = Math.floor((await $.clock.now()) % 2147483647)
-      await $.state.set(VIEW, { ...EMPTY, game: newGame(seed, best, Number((await $.store.get('factNext')) ?? 0)) })
+      const seen = ((await $.store.get('seen')) ?? []) as string[]
+      await $.state.set(VIEW, { ...EMPTY, game: newGame(seed, best, queueFor(seen, seed).slice(0, QUEUE)) })
     }
 
     // 每帧：按住或起跳动画期间请求重画；同时盯着输入，空格停了就起跳
@@ -51,7 +65,15 @@ export const register: Register = on => {
     $.clock.every(FRAME_MS, () => {
       void $.clock.now().then(async now => {
         // 用状态驱动重画（和按键触发的重画走同一条路，不会丢键盘焦点）
-        if (holdStart !== 0 || now < animUntil + 2 * FRAME_MS) await $.state.set(TICK, now)
+        const isAnimating = holdStart !== 0 || now < animUntil + 2 * FRAME_MS
+        if (now - lastShownCheck > 1000) {
+          lastShownCheck = now
+          isShown = (await $.ui.panes().catch(() => [])).some(p => p.id === PANE && p.isShown && p.isPlaced)
+        }
+        if (isAnimating || (isShown && now - lastIdleFrame >= IDLE_FRAME_MS)) {
+          lastIdleFrame = now
+          await $.state.set(TICK, now)
+        }
         if (holdStart === 0) return
         const gap = now - lastPress
         const isTap = presses < 2 && gap > repeatDelayMs + 80
@@ -77,13 +99,18 @@ export const register: Register = on => {
             before: g,
             phase: 'jump',
             jump: result.jump,
-            hint: `按了 ${(held / 1000).toFixed(2)} 秒`,
+            hint: tr().held((held / 1000).toFixed(2)),
             pad,
             chargeAt: v.chargeAt,
             jumpAt: now,
           })
           animUntil = now + ANIM_MS
-          await $.store.set('factNext', result.game.factNext)
+          // 真的落到这块上了，它的冷知识才算看过
+          const shown = result.jump.result === 'land' ? g.blocks[g.cur + 1].fact : null
+          if (shown) {
+            const seen = ((await $.store.get('seen')) ?? []) as string[]
+            if (!seen.includes(shown)) await $.store.set('seen', [...seen, shown])
+          }
 
           // 音效：起跳马上响，落地 / 掉下去等小人到了再响
           const r = result.jump
@@ -121,13 +148,13 @@ export const register: Register = on => {
     const opened = await $.ui.open({ id: PANE, title: TITLE, focus: true })
 
     return {
-      text: opened.isPlaced ? '开跳：点面板下面的输入框，按住空格蓄力，松开起跳。' : `面板没能打开：${opened.reason}`,
+      text: opened.isPlaced ? tr().opened : `${tr().notOpened}${opened.reason}`,
     }
   })
 
   on('turn.complete', async ($, e, next) => {
     const panes = await $.ui.panes()
-    if (panes.some(p => p.id === PANE && p.isPlaced)) $.ui.toast('Claude 干完了，回来看看吧')
+    if (panes.some(p => p.id === PANE && p.isPlaced)) $.ui.toast(tr().toastDone)
 
     return next(e)
   })
@@ -138,19 +165,17 @@ export const register: Register = on => {
     const { value: view = EMPTY } = await $.state.get(VIEW)
     const game = view.game
 
-    if (!game) return <Text dimColor>正在摆方块……</Text>
+    if (!game) return <Text dimColor>{tr().loading}</Text>
     await $.state.get(TICK)
     const now = await $.clock.now()
     const svg =
       view.phase === 'charge'
         ? chargeFrame(game, now - view.chargeAt)
         : view.phase === 'jump' && view.before && view.jump && now - view.jumpAt < ANIM_MS
-          ? jumpFrame(view.before, game, view.jump, now - view.jumpAt)
-          : stillFrame(game)
-    const standing = game.blocks[game.cur].fact
-    const fact = standing === null || standing === undefined ? null : FACTS[standing % FACTS.length]
+          ? jumpFrame(view.before, game, view.jump, now - view.jumpAt, now)
+          : stillFrame(game, now)
     if (e.surface === 'terminal' || !('Svg' in t) || !('Input' in t)) {
-      return <Text dimColor>蹦一蹦需要在 Claude 桌面端里玩。</Text>
+      return <Text dimColor>{tr().desktopOnly}</Text>
     }
 
     // 输入框里每多一个空格（按住时系统会不停地打）都会走到这里
@@ -183,13 +208,15 @@ export const register: Register = on => {
       })
 
     const restart = () =>
-      void $.clock.now().then(now =>
-        $.state.set(VIEW, {
+      void $.clock.now().then(async now => {
+        const seed = Math.floor(now % 2147483647)
+        const seen = ((await $.store.get('seen')) ?? []) as string[]
+        await $.state.set(VIEW, {
           ...EMPTY,
-          game: newGame(Math.floor(now % 2147483647), game.best, game.factNext),
+          game: newGame(seed, game.best, queueFor(seen, seed).slice(0, QUEUE)),
           pad: view.pad + 1,
-        }),
-      )
+        })
+      })
 
     return (
       <Box flexDirection="column" gap={1}>
@@ -197,44 +224,34 @@ export const register: Register = on => {
         <t.Svg source={svg} alt={`蹦一蹦，当前 ${game.score} 分`} width={W} height={H} />
         <Box flexDirection="row" gap={1} alignItems="center">
           {game.isOver ? (
-            <Button key="restart" label="再来一局 (R)" hotkey="r" variant="primary" autoFocus onPress={restart} />
+             <Button key="restart" label={tr().restart} hotkey="r" variant="primary" autoFocus onPress={restart} />
           ) : (
             // 只有输入框收得到按住空格时的连续输入；宽度固定，空格攒多了也不会把框撑长
             <Box width={34}>
               <t.Input
                 key={`pad-${view.pad}`}
                 value=""
-                placeholder="点这里，按住空格蓄力，松开起跳"
+                placeholder={tr().placeholder}
                 autoFocus
                 onInput={() => press()}
                 onSubmit={() => undefined}
               />
             </Box>
           )}
-          <Text dimColor>{view.hint || '点左边的框，按住空格蓄力，松开起跳'}</Text>
+          <Text dimColor>{view.hint || tr().hintIdle}</Text>
         </Box>
-        {fact && (
-          <Box flexDirection="column" borderStyle="round" borderColor="#D97757" paddingX={1}>
-            <Text bold color="#D97757">
-              💡 {fact.tag}
-            </Text>
-            <Text wrap="wrap">{fact.text}</Text>
-          </Box>
-        )}
         <Box flexDirection="row" justifyContent="space-between" alignItems="center">
-          <Text dimColor>
-            本局 {game.score} · 最高 {game.best}
-          </Text>
+          <Text dimColor>{tr().scoreLine(game.score, game.best)}</Text>
+          {/* 声音开关：只有一个音符图标，静音时变暗 */}
           <Button
             key="mute"
-            label={muted ? '🔇 已静音' : '🔊 声音开'}
-            dimColor
+            label="♪"
+            plain
+            dimColor={muted}
             onPress={() => {
               muted = !muted
               void $.store.set('muted', muted)
-              void $.state.get(VIEW).then(({ value: v = EMPTY }) =>
-                $.state.set(VIEW, { ...v, hint: muted ? '已静音，点一下框接着玩' : '声音开了，点一下框接着玩' }),
-              )
+              void $.state.set(TICK, Date.now())
             }}
           />
         </Box>

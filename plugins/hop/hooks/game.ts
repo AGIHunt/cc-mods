@@ -1,5 +1,5 @@
 import type { Block, BlockKind, Game, Jump } from '../types'
-import { FACTS } from './facts'
+import { tr } from './i18n'
 
 // 按住 1 毫秒能跳多远（地面单位）
 export const SPEED = 0.09
@@ -11,11 +11,11 @@ export const PRESS_MIN = 0.62
 const PLAIN: string[] = ['#E9C46A', '#F4A261', '#8AB17D', '#7FB3D5', '#C9ADA7', '#F2E8CF', '#B8A1D9', '#E5989B']
 
 // 特殊方块：落上去有额外加分
-export const SPECIAL: Record<Exclude<BlockKind, 'cube' | 'disk'>, { bonus: number; label: string }> = {
-  terminal: { bonus: 3, label: '>_ 终端 +3' },
-  coffee: { bonus: 3, label: '☕ 续命 +3' },
-  test: { bonus: 5, label: '✓ 测试全绿 +5' },
-  git: { bonus: 5, label: '⎇ 合进 main +5' },
+export const SPECIAL: Record<Exclude<BlockKind, 'cube' | 'disk'>, { bonus: number }> = {
+  terminal: { bonus: 3 },
+  coffee: { bonus: 3 },
+  test: { bonus: 5 },
+  git: { bonus: 5 },
 }
 
 // 可复现的随机数：种子存在局面里，热重载后接着用
@@ -48,8 +48,7 @@ function nextBlock(game: Game, from: Block): Block {
   }
   const color = PLAIN[Math.floor(roll() * PLAIN.length)]
   game.seed = seed
-  const fact = game.factNext % FACTS.length
-  game.factNext = (game.factNext + 1) % FACTS.length
+  const fact = game.factQueue.shift() ?? null
   return {
     fact,
     gx: from.gx + (dir === 'x' ? dist : 0),
@@ -62,9 +61,9 @@ function nextBlock(game: Game, from: Block): Block {
   }
 }
 
-export function newGame(seed: number, best: number, factStart = 0): Game {
+export function newGame(seed: number, best: number, factQueue: string[] = []): Game {
   const first: Block = { gx: 0, gy: 0, half: 28, height: 26, kind: 'cube', color: '#F2E8CF', dir: 'x', fact: null }
-  const game: Game = { blocks: [first], cur: 0, score: 0, combo: 0, best, seed, isOver: false, jumps: 0, at: null, lostBy: null, factNext: factStart }
+  const game: Game = { blocks: [first], cur: 0, score: 0, combo: 0, best, seed, isOver: false, jumps: 0, at: null, lostBy: null, factQueue: [...factQueue] }
   game.blocks.push(nextBlock(game, first))
   return game
 }
@@ -105,11 +104,12 @@ export function jump(prev: Game, holdMs: number): { game: Game; jump: Jump } {
     const isPerfect = toCenter <= Math.max(4, target.half * 0.25)
     game.combo = isPerfect ? game.combo + 1 : 0
     let gained = isPerfect ? 2 * game.combo : 1
-    let label = isPerfect ? (game.combo > 1 ? `完美 ×${game.combo}` : '完美') : ''
+    const t = tr()
+    let label = isPerfect ? (game.combo > 1 ? t.perfectN(game.combo) : t.perfect) : ''
     if (target.kind in SPECIAL) {
-      const sp = SPECIAL[target.kind as keyof typeof SPECIAL]
-      gained += sp.bonus
-      label = label ? `${label} · ${sp.label}` : sp.label
+      const kind = target.kind as keyof typeof SPECIAL
+      gained += SPECIAL[kind].bonus
+      label = label ? `${label} · ${t[kind]}` : t[kind]
     }
     game.score += gained
     game.best = Math.max(game.best, game.score)

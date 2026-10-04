@@ -1,5 +1,7 @@
 import type { Block, Game, Jump } from '../types'
+import { factById } from './facts'
 import { MAX_HOLD_MS, PRESS_MIN } from './game'
+import { lang, tr } from './i18n'
 
 // 画面：等距视角
 export const W = 440
@@ -75,6 +77,47 @@ function decal(b: Block): string {
   }
 }
 
+// 带冷知识的方块顶面印一个小二维码：三个角是定位块，中间的点由冷知识 id 决定
+function qrBits(id: string): boolean[] {
+  let h = 2166136261
+  for (const c of id) h = Math.imul(h ^ c.charCodeAt(0), 16777619)
+  const bits: boolean[] = []
+  for (let i = 0; i < 49; i++) {
+    h = Math.imul(h ^ (h >>> 13), 1274126177)
+    bits.push(((h >>> 7) & 1) === 1)
+  }
+  return bits
+}
+
+const isFinder = (r: number, c: number) =>
+  (r < 3 && c < 3) || (r < 3 && c > 3) || (r > 3 && c < 3)
+
+function qrCell(r: number, c: number, bits: boolean[]): boolean {
+  if (isFinder(r, c)) return true
+  if (r === 3 || c === 3) return bits[r * 7 + c] && (r + c) % 2 === 0
+  return bits[r * 7 + c]
+}
+
+function qr(b: Block, color: string): string {
+  if (!b.fact) return ''
+  const bits = qrBits(b.fact)
+  const span = b.half * (b.kind === 'cube' ? 1.05 : 0.95)
+  const cell = span / 7
+  const x0 = b.gx - span / 2
+  const y0 = b.gy - span / 2
+  const z = b.height + 0.2
+  let out = ''
+  for (let r = 0; r < 7; r++) {
+    for (let c = 0; c < 7; c++) {
+      if (!qrCell(r, c, bits)) continue
+      const gx = x0 + c * cell
+      const gy = y0 + r * cell
+      out += `<polygon points="${pts([P(gx, gy, z), P(gx + cell, gy, z), P(gx + cell, gy + cell, z), P(gx, gy + cell, z)])}"/>`
+    }
+  }
+  return `<g fill="${shade(color, 0.55)}" opacity="0.5">${out}</g>`
+}
+
 const KIND_COLOR: Record<string, string> = { terminal: '#2B2D31', coffee: '#7A5236', test: '#4FA35B', git: '#E8603C' }
 
 function block(b: Block, attrs = '', anim = ''): string {
@@ -82,20 +125,37 @@ function block(b: Block, attrs = '', anim = ''): string {
   const isRound = b.kind === 'disk' || b.kind === 'coffee' || b.kind === 'git'
   const [sx, sy] = P(b.gx, b.gy)
   const shadow = `<ellipse cx="${sx + 10}" cy="${sy + 4}" rx="${b.half * 1.5}" ry="${b.half * 0.6}" fill="#5B4636" opacity="0.12"/>`
-  return `<g${attrs}>${anim}${shadow}${isRound ? disk(b, color) : cube(b, color)}${decal(b)}</g>`
+  const mark = b.kind === 'cube' || b.kind === 'disk' ? qr(b, color) : ''
+  return `<g${attrs}>${anim}${shadow}${isRound ? disk(b, color) : cube(b, color)}${mark}${decal(b)}</g>`
 }
 
 
 // 画面一律是不带动画的静态图：桌面端把它当普通图片显示，换内容时不会闪。
 // 动画由插件按时间一帧一帧算出来（每秒约 30 帧）。
 
-// 主角：一只橙色的小方块怪，原点在脚底中心
-const HERO = `
+// 主角：一只橙色的小方块怪，原点在脚底中心。pose 控制小动作
+type Pose = { blink: number; armL: number; armR: number; look: number }
+const REST: Pose = { blink: 0, armL: 0, armR: 0, look: 0 }
+
+function heroArt(p: Pose): string {
+  const eyeH = Math.max(0.7, 5 * (1 - p.blink))
+  const eyeY = -19 + (5 - eyeH) / 2
+  return `
   <rect x="-9" y="-6" width="3" height="6" fill="#B85C3E"/><rect x="-3" y="-6" width="3" height="6" fill="#B85C3E"/>
   <rect x="2" y="-6" width="3" height="6" fill="#B85C3E"/><rect x="7" y="-6" width="3" height="6" fill="#B85C3E"/>
-  <rect x="-13" y="-17" width="4" height="5" fill="#D97757"/><rect x="10" y="-17" width="4" height="5" fill="#D97757"/>
+  <rect x="-13" y="${f1(-17 - p.armL)}" width="4" height="5" fill="#D97757"/><rect x="10" y="${f1(-17 - p.armR)}" width="4" height="5" fill="#D97757"/>
   <rect x="-10" y="-24" width="21" height="18" rx="2" fill="#D97757"/>
-  <rect x="-5" y="-19" width="3" height="5" fill="#2B2B2B"/><rect x="4" y="-19" width="3" height="5" fill="#2B2B2B"/>`
+  <rect x="${f1(-5 + p.look)}" y="${f1(eyeY)}" width="3" height="${f1(eyeH)}" fill="#2B2B2B"/><rect x="${f1(4 + p.look)}" y="${f1(eyeY)}" width="3" height="${f1(eyeH)}" fill="#2B2B2B"/>`
+}
+
+// 待机小动作：呼吸、每隔几秒眨一下眼、偶尔挥挥手、眼睛看向下一块
+function idlePose(ms: number, look: number): { pose: Pose; breathe: number } {
+  const blinkT = ms % 3400
+  const blink = blinkT < 140 ? Math.sin((blinkT / 140) * Math.PI) : 0
+  const waveT = ms % 7300
+  const wave = waveT < 1000 ? Math.abs(Math.sin((waveT / 1000) * Math.PI * 3)) * 5 * Math.sin((waveT / 1000) * Math.PI) : 0
+  return { pose: { blink, armL: 0, armR: wave, look }, breathe: Math.sin((ms / 1700) * Math.PI * 2) * 0.025 }
+}
 
 const BACKGROUND = `<defs>
     <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
@@ -114,8 +174,11 @@ const PAN = 0.35
 const DROP_AT = FLY + 0.2
 const DROP = 0.3
 const POP = 1.0
+// 新卡片等加分飘字散了再淡入
+const CARD_AT = FLY + POP - 0.15
+const CARD_FADE = 0.25
 // 一跳从松手到画面完全停下要多久（毫秒）
-export const ANIM_MS = Math.round((Math.max(PAN_AT + PAN, DROP_AT + DROP, FLY + POP) + 0.05) * 1000)
+export const ANIM_MS = Math.round((Math.max(PAN_AT + PAN, DROP_AT + DROP, FLY + POP, CARD_AT + CARD_FADE) + 0.05) * 1000)
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
 const lerp = (a: number, b: number, k: number) => a + (b - a) * k
@@ -136,7 +199,7 @@ const heat = (k: number) => (k < 0.5 ? mix('#E9C46A', '#F4A261', k * 2) : mix('#
 function hud(game: Game): string {
   return `<g font-family="${FONT}">
       <text x="22" y="52" font-size="40" font-weight="800" fill="#3D2E22">${game.score}</text>
-      <text x="24" y="74" font-size="12" fill="#8C7A6B">最高 ${game.best}</text>
+      <text x="24" y="74" font-size="12" fill="#8C7A6B">${tr().best(game.best)}</text>
     </g>`
 }
 
@@ -148,9 +211,9 @@ function overScreen(game: Game, alpha: number): string {
   if (alpha <= 0) return ''
   return `<g opacity="${alpha.toFixed(2)}" font-family="${FONT}" text-anchor="middle">
       <rect width="${W}" height="${H}" fill="#2B2018" opacity="0.55"/>
-      <text x="${W / 2}" y="${H / 2 - 30}" font-size="15" fill="#F2E8CF">${game.lostBy === 'stay' ? '原地踏步也算输' : '掉下去了'}</text>
+      <text x="${W / 2}" y="${H / 2 - 30}" font-size="15" fill="#F2E8CF">${game.lostBy === 'stay' ? tr().stayed : tr().fell}</text>
       <text x="${W / 2}" y="${H / 2 + 20}" font-size="56" font-weight="800" fill="#fff">${game.score}</text>
-      <text x="${W / 2}" y="${H / 2 + 48}" font-size="13" fill="#F2E8CF">${game.score >= game.best && game.score > 0 ? '新纪录！' : `最高 ${game.best}`}</text>
+      <text x="${W / 2}" y="${H / 2 + 48}" font-size="13" fill="#F2E8CF">${game.score >= game.best && game.score > 0 ? tr().record : tr().best(game.best)}</text>
     </g>`
 }
 
@@ -162,15 +225,15 @@ function squashed(b: Block, sy: number, extra = ''): string {
 }
 
 // 主角：站在 (x, y)，scale 压扁，rot 空翻角度，alpha 透明度
-function hero(x: number, y: number, sx = 1, sy = 1, rot = 0, alpha = 1, pivotY = -12): string {
+function hero(x: number, y: number, sx = 1, sy = 1, rot = 0, alpha = 1, pivotY = -12, pose: Pose = REST): string {
   const shadow = rot === 0 ? `<ellipse cx="0" cy="1" rx="11" ry="4" fill="#000" opacity="0.18"/>` : ''
-  return `<g transform="translate(${f1(x)} ${f1(y)})" opacity="${alpha.toFixed(2)}">${shadow}<g transform="rotate(${f1(rot)} 0 ${pivotY}) scale(${sx.toFixed(3)} ${sy.toFixed(3)})">${HERO}</g></g>`
+  return `<g transform="translate(${f1(x)} ${f1(y)})" opacity="${alpha.toFixed(2)}">${shadow}<g transform="rotate(${f1(rot)} 0 ${pivotY}) scale(${sx.toFixed(3)} ${sy.toFixed(3)})">${heroArt(pose)}</g></g>`
 }
 
 // 摔在地上：落点处躺倒，dir 决定往哪边倒
 function fallen(gx: number, gy: number, dir: 'x' | 'y', k = 1): string {
   const [x, y] = P(gx, gy, 0)
-  return hero(x, y, 1, 1, (dir === 'x' ? 90 : -90) * k, 1, 0)
+  return hero(x, y, 1, 1, (dir === 'x' ? 90 : -90) * k, 1, 0, { blink: 1, armL: 0, armR: 0, look: 0 })
 }
 
 // 按地面深度把主角插进方块之间：比它远的先画，比它近的后画，近处的方块会挡住它
@@ -187,22 +250,83 @@ function frame(camera: Pt, world: string, over: string, tag: string): string {
   </svg>`
 }
 
+const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+// 按显示宽度折行：中文一个字算 2，英文按单词
+function wrap(text: string, max: number): string[] {
+  const lines: string[] = []
+  let line = ''
+  let w = 0
+  const tokens = lang() === 'zh' ? [...text] : text.split(/(\s+)/)
+  for (const tok of tokens) {
+    const tw = [...tok].reduce((a, ch) => a + (ch.charCodeAt(0) > 0x2e80 ? 2 : 1), 0)
+    if (w + tw > max && line.trim()) {
+      lines.push(line.trim())
+      line = ''
+      w = 0
+      if (/^\s+$/.test(tok)) continue
+    }
+    line += tok
+    w += tw
+  }
+  if (line.trim()) lines.push(line.trim())
+  return lines
+}
+
+const CARD_W = 200
+
+// 卡片放在下一块的反方向那一侧，避免挡住要跳的地方；anchor 是方块顶面中心的屏幕坐标
+function factCard(id: string | null, anchor: Pt, side: 'left' | 'right', alpha: number): string {
+  const f = factById(id)
+  if (!f || alpha <= 0) return ''
+  const l = lang()
+  const lines = wrap(f[l], 30).slice(0, 6)
+  const h = 40 + lines.length * 17
+  const x = side === 'left' ? 12 : W - CARD_W - 12
+  const y = side === 'left' ? 88 : 14
+  const ex = side === 'left' ? x + CARD_W : x
+  const ey = y + h - 12
+  const bits = qrBits(f.id)
+  let icon = ''
+  for (let r = 0; r < 7; r++) for (let c = 0; c < 7; c++) if (qrCell(r, c, bits)) icon += `<rect x="${x + 12 + c * 2}" y="${y + 11 + r * 2}" width="2" height="2"/>`
+  return `<g opacity="${alpha.toFixed(2)}" font-family="${FONT}">
+      <line x1="${f1(ex)}" y1="${f1(ey)}" x2="${f1(anchor[0])}" y2="${f1(anchor[1])}" stroke="#D97757" stroke-width="1.2" stroke-dasharray="3 3" opacity="0.7"/>
+      <circle cx="${f1(anchor[0])}" cy="${f1(anchor[1])}" r="3" fill="#D97757"/>
+      <rect x="${x + 1}" y="${y + 2}" width="${CARD_W}" height="${h}" rx="10" fill="#5B4636" opacity="0.10"/>
+      <rect x="${x}" y="${y}" width="${CARD_W}" height="${h}" rx="10" fill="#FFFDF8" stroke="#EADBC8"/>
+      <g fill="#D97757">${icon}</g>
+      <text x="${x + 32}" y="${y + 23}" font-size="11.5" font-weight="700" fill="#D97757">${esc(f.tag[l])}</text>
+      ${lines.map((t, i) => `<text x="${x + 12}" y="${y + 44 + i * 17}" font-size="12" fill="#3D2E22">${esc(t)}</text>`).join('')}
+    </g>`
+}
+
+// 方块顶面中心在画面上的位置（含镜头）
+function topOnScreen(b: Block, camera: Pt): Pt {
+  const [x, y] = P(b.gx, b.gy, b.height)
+  return [camera[0] + x * ZOOM, camera[1] + y * ZOOM]
+}
+
+const sideFor = (game: Game): 'left' | 'right' => ((game.blocks[game.cur + 1] ?? game.blocks[game.cur]).dir === 'x' ? 'left' : 'right')
+
 const byDepth = (blocks: Block[]) => [...blocks].sort((a, b) => b.gx + b.gy - (a.gx + a.gy))
 
 // 静止：小人站在实际落点；掉下去了就盖上结算
-export function stillFrame(game: Game): string {
+export function stillFrame(game: Game, ms = 0): string {
   const cur = game.blocks[game.cur]
   const pos = game.at ?? { gx: cur.gx, gy: cur.gy }
   const target = game.blocks[game.cur + 1] ?? cur
+  const camera = cam(game)
   let world: string
   if (game.lostBy === 'fall') {
     world = layered(game.blocks, pos.gx + pos.gy, fallen(pos.gx, pos.gy, target.dir))
   } else {
     const [hx, hy] = P(pos.gx, pos.gy, cur.height)
-    world = layered(game.blocks, cur.gx + cur.gy, hero(hx, hy))
+    const { pose, breathe } = idlePose(ms, target.dir === 'x' ? 1.2 : -1.2)
+    world = layered(game.blocks, cur.gx + cur.gy, hero(hx, hy, 1 - breathe * 0.5, 1 + breathe, 0, 1, -12, pose))
   }
-  const tip = game.isOver ? '' : game.jumps === 0 ? hint('按住空格蓄力，松开起跳') : ''
-  return frame(cam(game), world, `${hud(game)}${tip}${overScreen(game, game.isOver ? 1 : 0)}`, `still ${game.jumps}`)
+  const tip = game.isOver ? '' : game.jumps === 0 ? hint(tr().sceneHint) : ''
+  const card = game.isOver ? '' : factCard(cur.fact, topOnScreen(cur, camera), sideFor(game), 1)
+  return frame(camera, world, `${hud(game)}${card}${tip}${overScreen(game, game.isOver ? 1 : 0)}`, `still ${game.jumps}`)
 }
 
 // 蓄力：脚下的方块被压下去，小人跟着下沉、稍微扁一点，脚下一圈蓄力环，底部蓄力条
@@ -217,15 +341,19 @@ export function chargeFrame(game: Game, heldMs: number): string {
   const near = sorted.filter(b => b.gx + b.gy < cur.gx + cur.gy)
   const color = heat(k)
   const ring = `<ellipse cx="${f1(hx)}" cy="${f1(hy)}" rx="${f1(lerp(8, cur.half * 1.2, k))}" ry="${f1(lerp(4, cur.half * 0.7, k))}" fill="none" stroke="${color}" stroke-width="2.5"/>`
-  const world = `${far.map(b => (b === cur ? squashed(b, 1 - (1 - PRESS_MIN) * k) : block(b))).join('')}${ring}${hero(hx, hy, 1 + 0.1 * k, 1 - 0.18 * k)}${near.map(b => block(b)).join('')}`
+  const shake = Math.sin(heldMs / 35) * 0.8 * k
+  const pose: Pose = { blink: k > 0.6 ? 0.55 : 0, armL: -1 + shake, armR: -1 - shake, look: 0 }
+  const world = `${far.map(b => (b === cur ? squashed(b, 1 - (1 - PRESS_MIN) * k) : block(b))).join('')}${ring}${hero(hx, hy, 1 + 0.1 * k, 1 - 0.18 * k, 0, 1, -12, pose)}${near.map(b => block(b)).join('')}`
   const bw = W - 140
   const bar = `<rect x="70" y="${H - 30}" width="${bw}" height="10" rx="5" fill="#000" opacity="0.08"/>
     <rect x="70" y="${H - 30}" width="${f1(bw * k)}" height="10" rx="5" fill="${color}"/>`
-  return frame(cam(game), world, `${hud(game)}${bar}`, `charge ${game.jumps}`)
+  const camera = cam(game)
+  const card = factCard(cur.fact, topOnScreen(cur, camera), sideFor(game), 1)
+  return frame(camera, world, `${hud(game)}${card}${bar}`, `charge ${game.jumps}`)
 }
 
 // 起跳：抛物线 + 空翻 → 落地回弹 / 加分飘字 / 完美波纹 → 镜头跟过去、新方块落下；掉下去就往下掉再盖结算
-export function jumpFrame(before: Game, after: Game, j: Jump, ms: number): string {
+export function jumpFrame(before: Game, after: Game, j: Jump, ms: number, clockMs = 0): string {
   const t = ms / 1000
   const from = before.blocks[before.cur]
   const target = before.blocks[before.cur + 1]
@@ -284,18 +412,21 @@ export function jumpFrame(before: Game, after: Game, j: Jump, ms: number): strin
   const me =
     isFall && lying > 0
       ? fallen(j.to.gx, j.to.gy, j.dir, lying)
-      : hero(hx, hy, hsx, hsy, rot)
+      : hero(hx, hy, hsx, hsy, rot, 1, -12, t < FLY ? { blink: 0, armL: 5, armR: 5, look: 0 } : idlePose(clockMs, sideFor(after) === 'left' ? 1.2 : -1.2).pose)
   const actors = depth === Infinity ? `${byDepth(before.blocks).map(draw).join('')}${me}` : layered(before.blocks, depth, me, draw)
 
-  // 加分飘字、完美波纹
+  // 完美波纹画在方块表面（世界坐标）；加分飘字画在最上层（屏幕坐标），不会被卡片挡住
   let fx = ''
+  let pop = ''
   if (isLand && after1 > 0 && after1 < POP) {
     const p = after1 / POP
     const a = p < 0.1 ? p / 0.1 : p > 0.7 ? 1 - (p - 0.7) / 0.3 : 1
     const rise = 26 * p
-    fx += `<g font-family="${FONT}" font-weight="800" text-anchor="middle" opacity="${a.toFixed(2)}">
-      <text x="${f1(ex)}" y="${f1(ey - 34 - rise)}" font-size="${j.isPerfect ? 20 : 16}" fill="${j.isPerfect ? '#E76F51' : '#6B5444'}">+${j.gained}</text>
-      ${j.label ? `<text x="${f1(ex)}" y="${f1(ey - 54 - rise)}" font-size="12" fill="#6B5444">${j.label}</text>` : ''}
+    const px = camera[0] + ex * ZOOM
+    const py = camera[1] + (ey - rise) * ZOOM
+    pop = `<g font-family="${FONT}" font-weight="800" text-anchor="middle" opacity="${a.toFixed(2)}">
+      <text x="${f1(px)}" y="${f1(py - 44)}" font-size="${j.isPerfect ? 26 : 21}" fill="${j.isPerfect ? '#E76F51' : '#6B5444'}" stroke="#FFFDF8" stroke-width="3" paint-order="stroke">+${j.gained}</text>
+      ${j.label ? `<text x="${f1(px)}" y="${f1(py - 70)}" font-size="14" fill="#6B5444" stroke="#FFFDF8" stroke-width="3" paint-order="stroke">${esc(j.label)}</text>` : ''}
     </g>`
     if (j.isPerfect && after1 < 0.6) {
       const r = after1 / 0.6
@@ -305,5 +436,7 @@ export function jumpFrame(before: Game, after: Game, j: Jump, ms: number): strin
 
   const world = `${drop}${actors}${fx}`
   const overAlpha = after.isOver ? clamp01((t - (FLY + 0.5)) / 0.3) : 0
-  return frame(camera, world, `${hud(isLand && after1 > 0 ? after : before)}${overScreen(after, overAlpha)}`, `jump ${j.n}`)
+  const oldCard = factCard(from.fact, topOnScreen(from, camera), sideFor(before), 1 - clamp01(t / 0.15))
+  const newCard = isLand ? factCard(target.fact, topOnScreen(target, camera), sideFor(after), clamp01((t - CARD_AT) / CARD_FADE)) : ''
+  return frame(camera, world, `${hud(isLand && after1 > 0 ? after : before)}${oldCard}${newCard}${pop}${overScreen(after, overAlpha)}`, `jump ${j.n}`)
 }

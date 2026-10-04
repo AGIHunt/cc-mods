@@ -26,7 +26,7 @@ test('hold space in the input then release jumps', async ($, on) => {
   }
   await clock.advance(300)
   s = JSON.stringify(await ui.drawn())
-  console.log('jumped', s.includes('jump 1'), s.match(/按了 [^"]*/)?.[0], 'card', s.includes('💡'), 'new pad', s.includes('pad-1'))
+  console.log('jumped', s.includes('jump 1'), s.match(/(按了|Held) [^"]*/)?.[0], 'card', s.includes('stroke-dasharray='), 'new pad', s.includes('pad-1'))
   expect(s.includes('jump 1')).toBe(true)
 })
 

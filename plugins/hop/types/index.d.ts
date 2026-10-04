@@ -9,8 +9,8 @@ export type Block = {
   color: string
   // 这一块是沿哪条轴从上一块延伸出来的
   dir: 'x' | 'y'
-  // 落到这块时显示第几条冷知识；起点那块没有
-  fact: number | null
+  // 这块带的冷知识（id）；起点那块没有
+  fact: string | null
 }
 
 export type Game = {
@@ -26,8 +26,8 @@ export type Game = {
   at: { gx: number; gy: number } | null
   // 怎么输的：掉下去了，还是原地踏步
   lostBy: 'fall' | 'stay' | null
-  // 下一块方块用第几条冷知识（跨局接着往下轮）
-  factNext: number
+  // 接下来的方块依次用哪些冷知识（新开一局时从没看过的里随机排好）
+  factQueue: string[]
 }
 
 export type Jump = {
