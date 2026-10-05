@@ -1,0 +1,47 @@
+{
+  "name": "@agihunt/dsh-hop",
+  "version": "0.1.0",
+  "description": "蹦一蹦：等 DeepSeek 干活时玩的跳一跳，每块方块带一张 AI 编程知识卡片。",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "homepage": "https://github.com/AGIHunt/cc-mods/tree/main/dsh/hop",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AGIHunt/cc-mods.git",
+    "directory": "dsh/hop"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-api-remotes"
+      ]
+    }
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.2"
+  }
+}

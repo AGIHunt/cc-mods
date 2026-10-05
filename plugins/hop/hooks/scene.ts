@@ -144,7 +144,35 @@ function block(b: Block, attrs = '', anim = ''): string {
 type Pose = { blink: number; armL: number; armR: number; look: number }
 const REST: Pose = { blink: 0, armL: 0, armR: 0, look: 0 }
 
+// 主角皮肤：Claude Code 里是橙色小方块怪，DeepSeek Harness 里换成蓝色小鲸鱼
+export type Skin = 'clawd' | 'whale'
+let SKIN: Skin = 'clawd'
+export function setSkin(s: Skin): void {
+  SKIN = s
+}
+
 function heroArt(p: Pose): string {
+  return SKIN === 'whale' ? whaleArt(p) : clawdArt(p)
+}
+
+// 小鲸鱼：身子趴着，尾巴翘在后面；挥手换成头顶喷水，手换成两片小鳍
+function whaleArt(p: Pose): string {
+  const eyeH = Math.max(0.7, 4 * (1 - p.blink))
+  const eyeY = -14 + (4 - eyeH) / 2
+  const spout = Math.max(0, p.armR)
+  const jet = spout > 0.3
+    ? `<rect x="2" y="${f1(-21 - spout * 1.6)}" width="2" height="${f1(spout * 1.6)}" fill="#9FB4FF"/><rect x="-1" y="${f1(-22 - spout * 1.8)}" width="2" height="2" fill="#9FB4FF"/><rect x="5" y="${f1(-22 - spout * 1.8)}" width="2" height="2" fill="#9FB4FF"/>`
+    : ''
+  return `${jet}
+  <rect x="-19" y="-21" width="5" height="4" fill="#3A56D8"/><rect x="-13" y="-19" width="4" height="4" fill="#3A56D8"/><rect x="-16" y="-17" width="4" height="5" fill="#3A56D8"/>
+  <rect x="-13" y="-19" width="26" height="18" rx="6" fill="#4D6BFE"/>
+  <rect x="-9" y="-7" width="20" height="5" rx="2" fill="#DCE4FF"/>
+  <rect x="-3" y="${f1(-6 - p.armL)}" width="5" height="3" fill="#3A56D8"/><rect x="6" y="${f1(-6 - p.armL)}" width="5" height="3" fill="#3A56D8"/>
+  <rect x="${f1(4 + p.look)}" y="${f1(eyeY)}" width="3" height="${f1(eyeH)}" fill="#1B1F3B"/>
+  <rect x="${f1(9 + p.look * 0.5)}" y="-9" width="2" height="1" fill="#F3A6B5"/>`
+}
+
+function clawdArt(p: Pose): string {
   const eyeH = Math.max(0.7, 5 * (1 - p.blink))
   const eyeY = -19 + (5 - eyeH) / 2
   return `
