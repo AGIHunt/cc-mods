@@ -29,20 +29,21 @@ const FLY_MS = 450
 // 控件占的高度：画布下面一行提示、一行分数
 const CONTROLS_PX = 64
 
-const zh = (() => {
+// 界面语言跟随 DSH 自己的设置：DSH 会把当前语言同步到 <html lang>（桌面端的浏览器语言常是 en-US，不能用 navigator.language）
+const isZh = (): boolean => {
   try {
-    return (navigator.language || '').toLowerCase().startsWith('zh')
+    return (document.documentElement.lang || navigator.language || '').toLowerCase().startsWith('zh')
   } catch {
     return true
   }
-})()
-setLang(zh ? 'zh' : 'en')
+}
+const syncLang = (): void => setLang(isZh() ? 'zh' : 'en')
+syncLang()
 setSkin('whale')
 // 只在 Claude Code 某一端成立的卡片（终端、桌面端……）在这里没意义，只留通用的
 setFacts((allFacts as Fact[]).filter(f => !f.surface || f.surface === 'all'))
 
-const T = zh
-  ? {
+const ZH_T = {
       title: '蹦一蹦',
       guide: '等 DeepSeek 干活时，跳几下',
       busy: 'DeepSeek 还在干活',
@@ -56,7 +57,7 @@ const T = zh
       special: '特殊方块有额外加分：终端、咖啡 +3，测试、Git +5',
       sound: '音效',
     }
-  : {
+const EN_T = {
       title: 'Hop',
       guide: 'A little game while DeepSeek works',
       busy: 'DeepSeek is still working',
@@ -70,6 +71,7 @@ const T = zh
       special: 'Special blocks give bonus points: terminal and coffee +3, test and Git +5',
       sound: 'Sound',
     }
+const T_ = (): typeof ZH_T => (isZh() ? ZH_T : EN_T)
 
 // ---------- 本地存档（每个浏览器 / 桌面端各存一份）----------
 const load = <V,>(key: string, fallback: V): V => {
@@ -270,6 +272,7 @@ function useBoard() {
 const linkBtn: React.CSSProperties = { background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'inherit' }
 
 function BoardView(props: { lb: ReturnType<typeof useBoard>; game: Game; durationMs: number; onDone: () => void }): React.ReactNode {
+  useVersion()
   const { board, refresh, join, leave } = props.lb
   const [nick, setNick] = useState('')
   const dim = { opacity: 0.65 }
@@ -349,7 +352,7 @@ function HopBody(props: { sessionId: string }): React.ReactNode {
   const view = useRef<View>({ game: freshGame(load('best', 0)), phase: 'idle', chargeAt: 0, before: null, jump: null, jumpAt: 0, startedAt: 0 })
   const chargeStop = useRef<(() => void) | null>(null)
   const [, setTick] = useState(0)
-  const [hint, setHint] = useState(T.hint)
+  const [hint, setHint] = useState(T_().hint)
   const [muted, setMuted] = useState(load('muted', false))
   const mutedRef = useRef(muted)
   mutedRef.current = muted
@@ -446,7 +449,7 @@ function HopBody(props: { sessionId: string }): React.ReactNode {
     const landedSpecial = result.jump.result === 'land' && target.kind in SPECIAL
     const explained = load('specialExplained', false)
     if (landedSpecial && !explained) save('specialExplained', true)
-    setHint(landedSpecial && !explained ? T.special : T.held((held / 1000).toFixed(2)))
+    setHint(landedSpecial && !explained ? T_().special : T_().held((held / 1000).toFixed(2)))
     setTick(t => t + 1)
 
     if (!mutedRef.current) {
@@ -467,7 +470,7 @@ function HopBody(props: { sessionId: string }): React.ReactNode {
 
   const restart = (): void => {
     view.current = { game: freshGame(Math.max(view.current.game.best, load('best', 0))), phase: 'idle', chargeAt: 0, before: null, jump: null, jumpAt: 0, startedAt: 0 }
-    setHint(T.hint)
+    setHint(T_().hint)
     setTick(t => t + 1)
     host.current?.focus()
   }
@@ -503,7 +506,7 @@ function HopBody(props: { sessionId: string }): React.ReactNode {
       onBlur={release}
       style={{ height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, padding: 8, boxSizing: 'border-box', outline: 'none', fontSize: 13, userSelect: 'none' }}
     >
-      <div style={{ minHeight: 18, fontWeight: 600, color: status.since !== null ? '#4D6BFE' : '#2a9d78' }}>{status.since !== null ? T.busy : status.ran ? T.done : ''}</div>
+      <div style={{ minHeight: 18, fontWeight: 600, color: status.since !== null ? '#4D6BFE' : '#2a9d78' }}>{status.since !== null ? T_().busy : status.ran ? T_().done : ''}</div>
       <div
         ref={art}
         onPointerDown={e => {
@@ -518,7 +521,7 @@ function HopBody(props: { sessionId: string }): React.ReactNode {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         {game.isOver ? (
           <button type="button" onClick={restart} style={{ padding: '4px 12px', borderRadius: 6, cursor: 'pointer' }}>
-            {T.restart} (R)
+            {T_().restart} (R)
           </button>
         ) : null}
         <span style={dim}>{hint}</span>
@@ -527,11 +530,11 @@ function HopBody(props: { sessionId: string }): React.ReactNode {
         <BoardView lb={lb} game={game} durationMs={view.current.jumpAt - (view.current.startedAt || view.current.jumpAt)} onDone={() => host.current?.focus()} />
       ) : null}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={dim}>{T.score(game.score, game.best)}</span>
+        <span style={dim}>{T_().score(game.score, game.best)}</span>
         <button
           type="button"
-          title={T.sound}
-          aria-label={T.sound}
+          title={T_().sound}
+          aria-label={T_().sound}
           onClick={() => {
             const next = !muted
             setMuted(next)
@@ -558,10 +561,11 @@ function HopIcon(): React.ReactNode {
 }
 
 function HopTitle(): React.ReactNode {
+  useVersion()
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
       <HopIcon />
-      {T.title}
+      {T_().title}
     </span>
   )
 }
@@ -583,9 +587,9 @@ function HopHint(props: { sessionId: string; open: () => void }): React.ReactNod
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 12px', margin: '0 0 6px', borderRadius: 10, border: '1px solid rgba(127,127,127,.25)', fontSize: 13 }}>
       <HopIcon />
-      <span style={{ opacity: 0.7 }}>{T.busy}</span>
+      <span style={{ opacity: 0.7 }}>{T_().busy}</span>
       <button type="button" onClick={props.open} style={{ ...link, color: '#4D6BFE', fontWeight: 600 }}>
-        {T.play}
+        {T_().play}
       </button>
       <span style={{ flex: 1 }} />
       <button
@@ -596,7 +600,7 @@ function HopHint(props: { sessionId: string; open: () => void }): React.ReactNod
         }}
         style={{ ...link, opacity: 0.55 }}
       >
-        {T.mute}
+        {T_().mute}
       </button>
     </div>
   )
@@ -617,6 +621,16 @@ type Ctx = {
 export const inject = ['slots', 'sidebarRight', 'sidebarRightTabs', 'remote']
 
 export function apply(ctx: Ctx): void {
+  // DSH 切换界面语言时，<html lang> 会跟着变：同步一下并重画
+  ctx.effect(() => {
+    const mo = new MutationObserver(() => {
+      syncLang()
+      emit()
+    })
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] })
+    syncLang()
+    return () => mo.disconnect()
+  }, 'agihunt-hop.lang')
   const seenSessions = new Set<string>()
   if (load("debug", false)) Object.assign(globalThis, { __hopSetRunning: setRunning, __hopSessions: seenSessions })
   ctx.effect(
@@ -624,8 +638,8 @@ export function apply(ctx: Ctx): void {
       ctx.sidebarRightTabs.register({
         id: ID,
         kind: KIND,
-        title: () => T.title,
-        guide: [{ id: 'hop', order: 90, title: () => T.title, description: () => T.guide, icon: HopIcon }],
+        title: () => T_().title,
+        guide: [{ id: 'hop', order: 90, title: () => T_().title, description: () => T_().guide, icon: HopIcon }],
       }),
     'agihunt-hop.type',
   )
