@@ -11,6 +11,7 @@
     "url": "git+https://github.com/AGIHunt/cc-mods.git",
     "directory": "dsh/hop"
   },
+  "icon": "icon.svg",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -22,7 +23,8 @@
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",
-    "icon.svg"
+    "icon.svg",
+    "README.md"
   ],
   "scripts": {
     "build": "node build.mjs"
