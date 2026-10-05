@@ -6,7 +6,10 @@
 - 点一下画面，**按住空格（或按住鼠标）蓄力，松开起跳**
 - 每块方块带一张 AI 编程知识卡片，没看过的优先出现
 - 音效、中英双语（跟随系统语言）、难度随跳数渐进
-- 最高分和看过的卡片存在本机浏览器存储里，不联网
+- 可选加入 [AGI Hunt](https://agihunt.info) 排行榜，和 Claude Code 版是同一个榜：只上传昵称和成绩，随时退出并删除
+- 最高分、看过的卡片和排行榜身份存在本机浏览器存储里
+
+**联网：** 只有一局结束后主动加入排行榜，才会请求 `https://agihunt.info/agent/v1/hop`（上报成绩、拉榜单、退出删除）。不加入就不联网。
 
 ## 安装
 
@@ -30,7 +33,6 @@ dsh plugin --profile desktop add "github:AGIHunt/cc-mods#path:dsh/hop"
 
 DSH 的 Claude Code Mods 兼容层目前只能在输入框上方画一条文字横幅，画不了游戏，所以这里用 DSH 自己的插件体系写了一个原生插件：浏览器端注册右侧边栏标签页和输入框上方的提示条，游戏逻辑和画面直接复用 `plugins/hop/hooks` 里的代码。
 
-- 排行榜暂时只在 Claude Code 版里有
 - 只显示通用的知识卡片（只对 Claude Code 某一端成立的卡片不出现）
 
 ## 开发
@@ -49,4 +51,4 @@ dsh plugin --profile web add "$(pwd)"   # 装成本地链接，改完重新 buil
 
 ---
 
-Hop for DeepSeek Harness: the same game as the Claude Code mod, with a whale. Install from **Plugins → Add plugin** with `github:AGIHunt/cc-mods#path:dsh/hop`, or `dsh plugin --profile desktop add "github:AGIHunt/cc-mods#path:dsh/hop"`. Open it from the right sidebar; a hint appears above the composer once DeepSeek has been working for 5 seconds. Hold Space (or the mouse) to charge, release to jump. No network access; the leaderboard is Claude Code only for now.
+Hop for DeepSeek Harness: the same game as the Claude Code mod, with a whale. Install from **Plugins → Add plugin** with `github:AGIHunt/cc-mods#path:dsh/hop`, or `dsh plugin --profile desktop add "github:AGIHunt/cc-mods#path:dsh/hop"`. Open it from the right sidebar; a hint appears above the composer once DeepSeek has been working for 5 seconds. Hold Space (or the mouse) to charge, release to jump. Optional leaderboard shared with the Claude Code version (nickname and scores only; nothing is sent unless you join).

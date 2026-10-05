@@ -1,6 +1,6 @@
 {
   "name": "@agihunt/dsh-hop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "蹦一蹦：等 DeepSeek 干活时玩的跳一跳，每块方块带一张 AI 编程知识卡片。",
   "license": "MIT",
   "private": true,

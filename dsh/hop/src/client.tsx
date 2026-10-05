@@ -4,11 +4,11 @@
 // 主角换成小鲸鱼。
 import * as React from 'react'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { Game, Jump } from '../../../plugins/hop/types'
+import type { BoardEntry, BoardTab, Game, Jump } from '../../../plugins/hop/types'
 import { jump, newGame, SPECIAL } from '../../../plugins/hop/hooks/game'
 import { ANIM_MS, chargeFrame, jumpFrame, setCanvas, setSkin, stillFrame } from '../../../plugins/hop/hooks/scene'
 import { queueFor, setFacts, type Fact } from '../../../plugins/hop/hooks/facts'
-import { setLang } from '../../../plugins/hop/hooks/i18n'
+import { lang, setLang, tr } from '../../../plugins/hop/hooks/i18n'
 import allFacts from '../../../plugins/hop/data/facts.json'
 import bonus from './sounds/bonus.mp3'
 import charge from './sounds/charge.mp3'
@@ -20,6 +20,8 @@ import perfect from './sounds/perfect.mp3'
 import record from './sounds/record.mp3'
 
 const ID = '@agihunt/dsh-hop'
+const VERSION = 'dsh-0.2.0'
+const LB_BASE = 'https://agihunt.info/agent/v1/hop'
 const KIND = 'hop'
 const HINT_AFTER_MS = 5000
 const QUEUE = 80
@@ -155,6 +157,176 @@ function setRunning(id: string, isRunning: boolean): void {
 }
 let bodyShown = 0
 
+// ---------- 排行榜（和 Claude Code 版共用 agihunt.info 上的同一个榜）----------
+// 匿名身份：本机随机生成 player_id 和 secret，存在浏览器存储里；只有主动加入后才会联网
+type Identity = { playerId: string; secret: string; nickname: string; joined: boolean }
+type Board = { joined: boolean; nickname: string; tab: BoardTab; entries: BoardEntry[]; me: { rank: number; score: number } | null; status: string; busy: boolean }
+
+function identity(): Identity {
+  const saved = load<Identity | null>('lb', null)
+  if (saved?.playerId) return saved
+  const bytes = crypto.getRandomValues(new Uint8Array(32))
+  const secret = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  const fresh: Identity = { playerId: crypto.randomUUID(), secret, nickname: '', joined: false }
+  save('lb', fresh)
+  return fresh
+}
+
+async function call(method: string, path: string, body?: unknown): Promise<{ ok: boolean; status: number; data: Record<string, unknown> | null }> {
+  try {
+    const r = await fetch(`${LB_BASE}${path}`, {
+      method,
+      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+    let data: Record<string, unknown> | null = null
+    try {
+      data = (await r.json()) as Record<string, unknown>
+    } catch {
+      data = null
+    }
+    return { ok: r.ok, status: r.status, data }
+  } catch {
+    return { ok: false, status: 0, data: null }
+  }
+}
+
+function errorText(data: Record<string, unknown> | null, status: number): string {
+  const code = (data?.error as { code?: string } | undefined)?.code ?? ''
+  if (code.startsWith('nickname')) return tr().lbBadNick
+  if (status === 429) return tr().lbTooFast
+  return tr().lbOffline
+}
+
+function useBoard() {
+  const known = identity()
+  const [board, setBoard] = useState<Board>({ joined: known.joined, nickname: known.nickname, tab: 'today', entries: [], me: null, status: '', busy: false })
+  const patch = (change: Partial<Board>): void => setBoard(b => ({ ...b, ...change }))
+  const tabRef = useRef<BoardTab>('today')
+
+  const refresh = async (tab: BoardTab = tabRef.current): Promise<void> => {
+    tabRef.current = tab
+    const id = identity()
+    patch({ tab, busy: true })
+    const r = await call('GET', `/leaderboard?board=${tab}&limit=10&player_id=${id.playerId}`)
+    if (!r.ok || !r.data) {
+      patch({ busy: false, status: tr().lbOffline })
+      return
+    }
+    const raw = (r.data.entries ?? []) as { rank: number; nickname: string; score: number; is_me?: boolean }[]
+    const me = r.data.me as { rank: number; score: number } | null
+    patch({ busy: false, status: '', entries: raw.map(e => ({ rank: e.rank, nickname: e.nickname, score: e.score, isMe: e.is_me === true })), me: me ? { rank: me.rank, score: me.score } : null })
+  }
+
+  const submit = async (game: Game, durationMs: number): Promise<void> => {
+    const id = identity()
+    if (!id.joined || game.score < 1) return
+    const r = await call('POST', '/scores', {
+      player_id: id.playerId,
+      secret: id.secret,
+      score: game.score,
+      jumps: game.jumps,
+      perfects: game.perfects,
+      duration_ms: Math.max(0, Math.round(durationMs)),
+      client_version: VERSION,
+      lang: lang(),
+    })
+    if (!r.ok) patch({ status: errorText(r.data, r.status) })
+    await refresh()
+  }
+
+  const join = async (nickname: string, game: Game, durationMs: number): Promise<void> => {
+    const name = nickname.trim()
+    if (!name) return
+    const id = identity()
+    patch({ busy: true, status: '' })
+    const r = await call('PUT', '/player', { player_id: id.playerId, secret: id.secret, nickname: name, client_version: VERSION, lang: lang() })
+    if (!r.ok) {
+      patch({ busy: false, status: errorText(r.data, r.status) })
+      return
+    }
+    const saved = (r.data?.nickname as string | undefined) ?? name
+    save('lb', { ...id, nickname: saved, joined: true })
+    patch({ joined: true, nickname: saved, busy: false })
+    // 刚加入：把这一局也算上
+    if (game.isOver) await submit(game, durationMs)
+    else await refresh()
+  }
+
+  const leave = async (): Promise<void> => {
+    const id = identity()
+    const r = await call('DELETE', '/player', { player_id: id.playerId, secret: id.secret })
+    if (!r.ok) {
+      patch({ status: errorText(r.data, r.status) })
+      return
+    }
+    save('lb', { ...id, nickname: '', joined: false })
+    setBoard({ joined: false, nickname: '', tab: tabRef.current, entries: [], me: null, status: tr().lbLeft, busy: false })
+  }
+
+  return { board, refresh, submit, join, leave }
+}
+
+const linkBtn: React.CSSProperties = { background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'inherit' }
+
+function BoardView(props: { lb: ReturnType<typeof useBoard>; game: Game; durationMs: number; onDone: () => void }): React.ReactNode {
+  const { board, refresh, join, leave } = props.lb
+  const [nick, setNick] = useState('')
+  const dim = { opacity: 0.65 }
+  const box: React.CSSProperties = { border: '1px solid rgba(127,127,127,.25)', borderRadius: 10, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 520 }
+  if (!board.joined) {
+    return (
+      <div style={box}>
+        <span>{tr().lbInvite}</span>
+        <input
+          value={nick}
+          maxLength={24}
+          placeholder={tr().lbNick}
+          disabled={board.busy}
+          onChange={e => setNick(e.target.value)}
+          onKeyDown={e => {
+            e.stopPropagation()
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) void join(nick, props.game, props.durationMs)
+          }}
+          onKeyUp={e => e.stopPropagation()}
+          style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(127,127,127,.4)', font: 'inherit', background: 'transparent', color: 'inherit', maxWidth: 260 }}
+        />
+        {board.status ? <span style={dim}>{board.status}</span> : null}
+      </div>
+    )
+  }
+  const tabs: BoardTab[] = ['today', 'week', 'all']
+  return (
+    <div style={box}>
+      <div style={{ display: 'flex', gap: 14 }}>
+        {tabs.map(t => (
+          <button key={t} type="button" onClick={() => void refresh(t)} style={{ ...linkBtn, fontWeight: board.tab === t ? 700 : 400, opacity: board.tab === t ? 1 : 0.6 }}>
+            {tr().lbTabs[t]}
+          </button>
+        ))}
+      </div>
+      {board.entries.length === 0 ? (
+        <span style={dim}>{board.busy ? tr().lbLoading : board.status || tr().lbEmpty}</span>
+      ) : (
+        board.entries.map(e => (
+          <div key={`${e.rank}-${e.nickname}`} style={{ display: 'flex', gap: 8, color: e.isMe ? '#4D6BFE' : undefined, fontWeight: e.isMe ? 700 : 400 }}>
+            <span style={{ width: 22, textAlign: 'right' }}>{e.rank}.</span>
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.nickname}</span>
+            <span>{e.score}</span>
+          </div>
+        ))
+      )}
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+        <span style={dim}>{board.me ? tr().lbMe(board.me.rank, board.me.score) : tr().lbNotRanked}</span>
+        <button type="button" onClick={() => void leave().then(props.onDone)} style={{ ...linkBtn, opacity: 0.55 }}>
+          {tr().lbLeave}
+        </button>
+      </div>
+      {board.status && board.entries.length > 0 ? <span style={dim}>{board.status}</span> : null}
+    </div>
+  )
+}
+
 // ---------- 游戏面板 ----------
 type View = {
   game: Game
@@ -163,6 +335,7 @@ type View = {
   before: Game | null
   jump: Jump | null
   jumpAt: number
+  startedAt: number
 }
 
 function freshGame(best: number): Game {
@@ -173,7 +346,7 @@ function freshGame(best: number): Game {
 function HopBody(props: { sessionId: string }): React.ReactNode {
   const host = useRef<HTMLDivElement>(null)
   const art = useRef<HTMLDivElement>(null)
-  const view = useRef<View>({ game: freshGame(load('best', 0)), phase: 'idle', chargeAt: 0, before: null, jump: null, jumpAt: 0 })
+  const view = useRef<View>({ game: freshGame(load('best', 0)), phase: 'idle', chargeAt: 0, before: null, jump: null, jumpAt: 0, startedAt: 0 })
   const chargeStop = useRef<(() => void) | null>(null)
   const [, setTick] = useState(0)
   const [hint, setHint] = useState(T.hint)
@@ -183,6 +356,7 @@ function HopBody(props: { sessionId: string }): React.ReactNode {
   useVersion()
   const status = runningOf(props.sessionId)
   const sizeKey = useRef('')
+  const lb = useBoard()
 
   useEffect(() => {
     bodyShown += 1
@@ -257,7 +431,8 @@ function HopBody(props: { sessionId: string }): React.ReactNode {
     const before = v.game
     const result = jump(before, held)
     const target = before.blocks[before.cur + 1]
-    view.current = { game: result.game, phase: 'jump', chargeAt: v.chargeAt, before, jump: result.jump, jumpAt: now }
+    const startedAt = v.startedAt || v.chargeAt
+    view.current = { game: result.game, phase: 'jump', chargeAt: v.chargeAt, before, jump: result.jump, jumpAt: now, startedAt }
 
     // 真的落到这块上了，它的卡片才算看过
     if (result.jump.result === 'land' && target.fact) {
@@ -267,6 +442,7 @@ function HopBody(props: { sessionId: string }): React.ReactNode {
     const lastBest = load('best', 0)
     const isRecord = result.game.isOver && result.game.score > lastBest
     if (isRecord) save('best', result.game.score)
+    if (result.game.isOver) void lb.submit(result.game, now - startedAt).then(() => lb.refresh())
     const landedSpecial = result.jump.result === 'land' && target.kind in SPECIAL
     const explained = load('specialExplained', false)
     if (landedSpecial && !explained) save('specialExplained', true)
@@ -290,13 +466,14 @@ function HopBody(props: { sessionId: string }): React.ReactNode {
   }
 
   const restart = (): void => {
-    view.current = { game: freshGame(Math.max(view.current.game.best, load('best', 0))), phase: 'idle', chargeAt: 0, before: null, jump: null, jumpAt: 0 }
+    view.current = { game: freshGame(Math.max(view.current.game.best, load('best', 0))), phase: 'idle', chargeAt: 0, before: null, jump: null, jumpAt: 0, startedAt: 0 }
     setHint(T.hint)
     setTick(t => t + 1)
     host.current?.focus()
   }
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
+    if ((e.target as HTMLElement).tagName === 'INPUT') return
     if (e.key === ' ' || e.code === 'Space') {
       e.preventDefault()
       e.stopPropagation()
@@ -307,6 +484,7 @@ function HopBody(props: { sessionId: string }): React.ReactNode {
     }
   }
   const onKeyUp = (e: React.KeyboardEvent): void => {
+    if ((e.target as HTMLElement).tagName === 'INPUT') return
     if (e.key === ' ' || e.code === 'Space') {
       e.preventDefault()
       e.stopPropagation()
@@ -323,7 +501,7 @@ function HopBody(props: { sessionId: string }): React.ReactNode {
       onKeyDown={onKeyDown}
       onKeyUp={onKeyUp}
       onBlur={release}
-      style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8, padding: 8, boxSizing: 'border-box', outline: 'none', fontSize: 13, userSelect: 'none' }}
+      style={{ height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, padding: 8, boxSizing: 'border-box', outline: 'none', fontSize: 13, userSelect: 'none' }}
     >
       <div style={{ minHeight: 18, fontWeight: 600, color: status.since !== null ? '#4D6BFE' : '#2a9d78' }}>{status.since !== null ? T.busy : status.ran ? T.done : ''}</div>
       <div
@@ -345,6 +523,9 @@ function HopBody(props: { sessionId: string }): React.ReactNode {
         ) : null}
         <span style={dim}>{hint}</span>
       </div>
+      {game.isOver ? (
+        <BoardView lb={lb} game={game} durationMs={view.current.jumpAt - (view.current.startedAt || view.current.jumpAt)} onDone={() => host.current?.focus()} />
+      ) : null}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={dim}>{T.score(game.score, game.best)}</span>
         <button
