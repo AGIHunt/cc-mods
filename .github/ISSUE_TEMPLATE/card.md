@@ -1,6 +1,6 @@
 ---
-name: 冷知识卡片建议 / Card suggestion
-about: 推荐一条蹦一蹦的冷知识，或指出某张卡片过时、写错了
+name: 知识卡片建议 / Card suggestion
+about: 推荐一条蹦一蹦的知识卡片，或指出某张卡片过时、写错了
 labels: cards
 ---
 

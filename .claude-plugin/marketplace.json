@@ -6,7 +6,7 @@
     {
       "name": "hop",
       "source": "./plugins/hop",
-      "description": "蹦一蹦：等 Claude 干活时玩的跳一跳小游戏，每块方块带一条 Claude Code 冷知识 / A hop game to play while Claude works, with a Claude Code tip on every block"
+      "description": "蹦一蹦：等 Claude 干活时玩的跳一跳小游戏，每块方块带一张 AI 编程知识卡片 / A hop game to play while Claude works, with an AI coding tip on every block"
     }
   ]
 }

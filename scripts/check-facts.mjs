@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 检查蹦一蹦的冷知识卡片：格式、长度、出处、适用端、重复。CI 和本地都跑这个。
+// 检查蹦一蹦的知识卡片：格式、长度、出处、适用端、重复。CI 和本地都跑这个。
 // 用法：node scripts/check-facts.mjs [plugins/hop/data/facts.json]
 import { readFileSync } from 'node:fs'
 
