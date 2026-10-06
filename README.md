@@ -1,8 +1,18 @@
 # AGI Hunt Mods
 
-AGI Hunt 出品的 [Claude Code Mods](https://code.claude.com/docs/en/plugins/mods/overview)：在 Claude Code 里画面板、加提示、做小游戏的插件。欢迎一起来做。
+**English** · [简体中文](README.zh-CN.md)
 
-## 安装
+[Claude Code Mods](https://code.claude.com/docs/en/plugins/mods/overview) by [AGI Hunt](https://agihunt.info): plugins that draw panes, add hints and run small games inside Claude Code. Contributions welcome.
+
+<p align="center">
+  <img src="docs/hop-demo.gif" alt="Hop in Claude Code" width="380" />
+  &nbsp;
+  <img src="docs/hop-dsh.gif" alt="Hop in DeepSeek Harness" width="380" />
+</p>
+
+## Install
+
+In Claude Code (desktop app, 2.1.287 or later):
 
 ```
 /plugin marketplace add AGIHunt/cc-mods
@@ -11,30 +21,33 @@ AGI Hunt 出品的 [Claude Code Mods](https://code.claude.com/docs/en/plugins/mo
 
 ## Mods
 
-| Mod | 是什么 |
+| Mod | What it is |
 |---|---|
-| [蹦一蹦 hop](plugins/hop) | 等 Claude 干活时玩的跳一跳，每块方块带一张 AI 编程知识卡片，可选排行榜 |
+| [Hop](plugins/hop) | A hop game to play while Claude works. Hold Space to charge, release to jump. Every block carries an AI coding tip (596 cards on Claude Code, Codex, DeepSeek Harness, Cursor and more). Optional leaderboard. |
 
-## DeepSeek Harness 也能玩
+## Also runs in DeepSeek Harness
 
-蹦一蹦有一个 [DeepSeek Harness 版](dsh/hop)（主角是小鲸鱼）。在 DSH 侧栏 **插件 → 添加插件** 填入：
+Hop has a [DeepSeek Harness version](dsh/hop) where the hero is a little whale. In DSH, open **Plugins → Add plugin** and paste:
 
 ```
 github:AGIHunt/cc-mods#path:dsh/hop
 ```
 
-或者命令行：`dsh plugin --profile desktop add "github:AGIHunt/cc-mods#path:dsh/hop"`。
+Or from the command line: `dsh plugin --profile desktop add "github:AGIHunt/cc-mods#path:dsh/hop"`.
 
-## 参与
+## Language
 
-- 加一张知识卡片：改 [`plugins/hop/data/facts.json`](plugins/hop/data/facts.json) 提 PR
-- 改进蹦一蹦：看 [plugins/hop/README.md](plugins/hop/README.md) 的代码地图
-- 做一个新 Mod：`cp -r templates/starter-mod plugins/my-mod`
+Hop speaks English and Chinese.
 
-详细步骤、Mod 守则和桌面端踩过的坑都在 [CONTRIBUTING.md](CONTRIBUTING.md)。
+- **Claude Code:** follows your system language. To force one, run `/plugin`, open **hop**, and set **Language** to `en` or `zh` (`auto` follows the system). Start a new session to apply it.
+- **DeepSeek Harness:** follows the DSH interface language (Settings → Language).
 
----
+## Contributing
 
-Claude Code mods by [AGI Hunt](https://agihunt.info). Install with the two commands above. Hop also runs in DeepSeek Harness: add `github:AGIHunt/cc-mods#path:dsh/hop` under Plugins → Add plugin. Contributions welcome: new trivia cards, improvements to Hop, or brand-new mods. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
+- Add a knowledge card: edit [`plugins/hop/data/facts.json`](plugins/hop/data/facts.json) and open a PR
+- Improve Hop: see the code map in [plugins/hop/README.md](plugins/hop/README.md)
+- Build a new mod: `cp -r templates/starter-mod plugins/my-mod`
+
+Step-by-step setup, the mod guidelines and the desktop pitfalls we hit are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 [MIT License](LICENSE)

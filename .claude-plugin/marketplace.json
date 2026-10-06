@@ -1,12 +1,17 @@
 {
   "name": "agihunt",
-  "owner": { "name": "AGI Hunt", "url": "https://agihunt.info" },
-  "metadata": { "description": "AGI Hunt 出品的 Claude Code Mods / Claude Code mods by AGI Hunt" },
+  "owner": {
+    "name": "AGI Hunt",
+    "url": "https://agihunt.info"
+  },
+  "metadata": {
+    "description": "Claude Code mods by AGI Hunt / AGI Hunt 出品的 Claude Code Mods"
+  },
   "plugins": [
     {
       "name": "hop",
       "source": "./plugins/hop",
-      "description": "蹦一蹦：等 Claude 干活时玩的跳一跳小游戏，每块方块带一张 AI 编程知识卡片 / A hop game to play while Claude works, with an AI coding tip on every block"
+      "description": "Hop: a hop game to play while Claude works, with an AI coding tip on every block / 蹦一蹦：等 Claude 干活时玩的跳一跳小游戏，每块方块带一张 AI 编程知识卡片"
     }
   ]
 }

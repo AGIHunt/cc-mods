@@ -62,7 +62,7 @@ let lb: Lb | null = null
 
 // 出现时机：Claude 一轮跑了几秒还没完，才在输入框上方提示；需要你时让开；闲着时不出现。
 // 全程只画界面、只观察事件，不往对话里写任何东西。
-type Options = { autoHint?: boolean; hintAfterSeconds?: number; autoOpen?: boolean }
+type Options = { autoHint?: boolean; hintAfterSeconds?: number; autoOpen?: boolean; language?: string }
 let opts: Options = {}
 let turnStart = 0
 let hinted = false
@@ -74,8 +74,13 @@ let chargeSound: { return?: (v?: undefined) => unknown } | null = null
 export const register: Register = (on, options) => {
   opts = (options ?? {}) as Options
   on('session.start', async ($, e, next) => {
-    const langs = await $.process.run(['defaults', 'read', '-g', 'AppleLanguages']).catch(() => null)
-    setLang(langFromAppleLanguages(langs?.stdout ?? ''))
+    // 语言：设置里指定了 zh / en 就用它，否则跟随系统语言
+    const forced = String(opts.language ?? 'auto').trim().toLowerCase()
+    if (forced === 'zh' || forced === 'en') setLang(forced)
+    else {
+      const langs = await $.process.run(['defaults', 'read', '-g', 'AppleLanguages']).catch(() => null)
+      setLang(langFromAppleLanguages(langs?.stdout ?? ''))
+    }
     await $.command.register({ name: 'hop', description: tr().command, immediate: true })
     const data = await $.fs.read(`${$.plugin.root}/data/facts.json`).catch(() => null)
     if (data) setFacts(JSON.parse(data) as Fact[])

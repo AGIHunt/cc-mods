@@ -1,54 +1,52 @@
-# 蹦一蹦 · DeepSeek Harness 版 / Hop for DSH
+# Hop for DeepSeek Harness
 
-等 DeepSeek 干活时玩的跳一跳。和 Claude Code 版是同一套游戏（同一份游戏逻辑、画面和知识卡片），主角换成了小鲸鱼。
+**English** · [简体中文](README.zh-CN.md)
 
-- 右侧边栏「开始」里点 **蹦一蹦** 打开；DeepSeek 一轮活干了 5 秒还没完，输入框上方也会出现提示，点一下就开玩
-- 点一下画面，**按住空格（或按住鼠标）蓄力，松开起跳**
-- 每块方块带一张 AI 编程知识卡片，没看过的优先出现
-- 音效、中英双语（跟随系统语言）、难度随跳数渐进
-- 可选加入 [AGI Hunt](https://agihunt.info) 排行榜，和 Claude Code 版是同一个榜：只上传昵称和成绩，随时退出并删除
-- 最高分、看过的卡片和排行榜身份存在本机浏览器存储里
+A hop game to play while DeepSeek works. It's the same game as the [Claude Code mod](../../plugins/hop) (same game logic, drawing and knowledge cards), with a little whale as the hero.
 
-**联网：** 只有一局结束后主动加入排行榜，才会请求 `https://agihunt.info/agent/v1/hop`（上报成绩、拉榜单、退出删除）。不加入就不联网。
+- Open it from **Start** in the right sidebar. When a DeepSeek turn has been running for 5 seconds, a hint also appears above the composer; one click starts a round
+- Click the game, **hold Space (or the mouse button) to charge, release to jump**
+- Every block carries an AI coding knowledge card; cards you haven't seen come first
+- Sounds, English and Chinese (follows the DSH interface language), difficulty ramps up with each jump
+- Optional [AGI Hunt](https://agihunt.info) leaderboard, shared with the Claude Code version: only a nickname and scores are sent, and you can leave and delete your data any time
+- Best score, seen cards and your leaderboard identity are kept in local browser storage
 
-## 安装
+**Network:** only after you finish a round and choose to join the leaderboard does it call `https://agihunt.info/agent/v1/hop` (submit scores, fetch the board, leave and delete). Nothing is sent otherwise.
 
-需要 DeepSeek Harness 0.2 或更新（桌面端或 `dsh web`）。
+## Install
 
-**桌面端 / Web：** 侧栏 **插件** → **添加插件**，填入下面这行，点 **安装**，再点 **立即启用**：
+Requires DeepSeek Harness 0.2 or later (desktop app or `dsh web`).
+
+**Desktop / Web:** in the sidebar open **Plugins → Add plugin**, paste the line below, click **Install**, then **Enable now**:
 
 ```
 github:AGIHunt/cc-mods#path:dsh/hop
 ```
 
-**命令行：**
+**Command line:**
 
 ```bash
 dsh plugin --profile desktop add "github:AGIHunt/cc-mods#path:dsh/hop"
 ```
 
-（`desktop` 换成你用的 profile，比如 `web`。）升级：先卸载，再按上面装一次。
+(Replace `desktop` with your profile, e.g. `web`.) To upgrade, uninstall it and install again the same way.
 
-## 和 Claude Code 版的区别
+## How it differs from the Claude Code version
 
-DSH 的 Claude Code Mods 兼容层目前只能在输入框上方画一条文字横幅，画不了游戏，所以这里用 DSH 自己的插件体系写了一个原生插件：浏览器端注册右侧边栏标签页和输入框上方的提示条，游戏逻辑和画面直接复用 `plugins/hop/hooks` 里的代码。
+DSH's Claude Code Mods compatibility layer can currently only draw a text band above the composer, which can't host a game. So this is a native DSH plugin: the browser half registers a right-sidebar tab and the hint above the composer, and the game logic and drawing are reused from `plugins/hop/hooks`.
 
-- 只显示通用的知识卡片（只对 Claude Code 某一端成立的卡片不出现）
+- Only general-purpose cards are shown (cards that apply only to one Claude Code surface are skipped)
 
-## 开发
+## Development
 
 ```bash
 npm install
-npm run build            # 生成 client.js（打包了 ../../plugins/hop/hooks 的游戏代码、卡片和音效）
-dsh plugin --profile web add "$(pwd)"   # 装成本地链接，改完重新 build 后刷新页面
+npm run build            # builds client.js (bundles the game code from ../../plugins/hop/hooks, the cards and the sounds)
+dsh plugin --profile web add "$(pwd)"   # installs it as a local link; rebuild and refresh the page after changes
 ```
 
-- `src/client.tsx`：浏览器端入口，注册侧边栏标签页、提示条，处理按键、鼠标、音效和存档
-- `index.js`：Host 端，什么也不做
-- `cordis.patch.yml`、`locale/*.json`、`icon.svg`：DSH 组合包的清单、插件名和图标
+- `src/client.tsx`: browser entry; registers the sidebar tab and the hint, handles keys, mouse, sounds and local saves
+- `index.js`: host half; does nothing
+- `cordis.patch.yml`, `locale/*.json`, `icon.svg`: the DSH bundle manifest, plugin name and icon
 
-改了 `plugins/hop/hooks` 或卡片之后要重新 `npm run build`，并把 `client.js` 一起提交（从 GitHub 安装时不会运行构建）。
-
----
-
-Hop for DeepSeek Harness: the same game as the Claude Code mod, with a whale. Install from **Plugins → Add plugin** with `github:AGIHunt/cc-mods#path:dsh/hop`, or `dsh plugin --profile desktop add "github:AGIHunt/cc-mods#path:dsh/hop"`. Open it from the right sidebar; a hint appears above the composer once DeepSeek has been working for 5 seconds. Hold Space (or the mouse) to charge, release to jump. Optional leaderboard shared with the Claude Code version (nickname and scores only; nothing is sent unless you join).
+After changing `plugins/hop/hooks` or the cards, run `npm run build` again and commit `client.js` with it (installing from GitHub doesn't run a build).

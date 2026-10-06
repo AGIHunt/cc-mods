@@ -1,7 +1,7 @@
 {
   "name": "@agihunt/dsh-hop",
-  "version": "0.3.0",
-  "description": "蹦一蹦：等 DeepSeek 干活时玩的跳一跳，每块方块带一张 AI 编程知识卡片。",
+  "version": "0.3.1",
+  "description": "Hop: a hop game to play while DeepSeek works, with an AI coding tip on every block / 蹦一蹦：等 DeepSeek 干活时玩的跳一跳",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -24,7 +24,8 @@
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
-    "README.md"
+    "README.md",
+    "README.zh-CN.md"
   ],
   "scripts": {
     "build": "node build.mjs"

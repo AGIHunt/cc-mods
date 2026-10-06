@@ -1,29 +1,35 @@
 {
   "name": "hop",
-  "version": "0.5.0",
-  "description": "蹦一蹦：等 Claude 干活时，按住蓄力、松开起跳，在一块块方块之间跳",
+  "version": "0.5.1",
+  "description": "Hop: a hop game to play while Claude works, with an AI coding tip on every block / 蹦一蹦：等 Claude 干活时玩的跳一跳，每块方块带一张 AI 编程知识卡片",
   "author": {
     "name": "AGI Hunt"
   },
   "types": "./types/index.d.ts",
   "userConfig": {
     "autoHint": {
-      "title": "Claude 干活时提示 / Hint while Claude works",
-      "description": "Claude 一轮跑了一会儿，在输入框上方提示可以玩一局 / Show a hint above the prompt when a turn runs for a while",
+      "title": "Hint while Claude works / Claude 干活时提示",
+      "description": "Show a hint above the prompt when a turn runs for a while / Claude 一轮跑了一会儿，在输入框上方提示可以玩一局",
       "type": "boolean",
       "default": true
     },
     "hintAfterSeconds": {
-      "title": "多少秒后提示 / Hint after (seconds)",
-      "description": "一轮开始多少秒后出现提示 / Seconds into a turn before the hint shows",
+      "title": "Hint after (seconds) / 多少秒后提示",
+      "description": "Seconds into a turn before the hint shows / 一轮开始多少秒后出现提示",
       "type": "number",
       "default": 5
     },
     "autoOpen": {
-      "title": "自动打开面板 / Open the pane by itself",
-      "description": "到时间直接打开游戏面板，而不只是提示 / Open the game pane instead of only hinting",
+      "title": "Open the pane by itself / 自动打开面板",
+      "description": "Open the game pane instead of only hinting / 到时间直接打开游戏面板，而不只是提示",
       "type": "boolean",
       "default": false
+    },
+    "language": {
+      "title": "Language / 语言",
+      "description": "auto follows the system language; zh or en forces Chinese or English / auto 跟随系统语言，zh 或 en 强制中文或英文",
+      "type": "string",
+      "default": "auto"
     }
   },
   "license": "MIT",
