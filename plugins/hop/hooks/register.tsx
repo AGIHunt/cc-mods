@@ -15,7 +15,7 @@ const BOARD = { plugin: 'hop', key: 'board' } as const
 const CLAUDE = { plugin: 'hop', key: 'claude' } as const
 const IDLE: ClaudeStatus = { busy: false, needsYou: false, done: false, hint: false }
 const EMPTY: View = { game: null, before: null, phase: 'idle', jump: null, hint: '', pad: 0, chargeAt: 0, jumpAt: 0, startedAt: 0 }
-const NO_BOARD: Board = { joined: false, nickname: '', tab: 'today', entries: [], me: null, status: '', busy: false }
+const NO_BOARD: Board = { joined: false, nickname: '', tab: 'today', entries: [], me: null, status: '', busy: false, slow: false }
 
 // 桌面端拿不到「按下 / 松开」，按钮快捷键也收不到按住时的重复按键。
 // 输入框能收到：在框里按住空格，系统会不停往里打空格，每打一个都通知插件；
@@ -49,8 +49,13 @@ const QUEUE = 80
 
 // 排行榜（agihunt.info 后端）：自愿加入；身份是本机随机生成的 player_id + secret，存在插件自己的 store 里
 const LB_BASE = 'https://agihunt.info/agent/v1/hop'
-const VERSION = '0.2.0'
+const VERSION = '0.5.2'
 type Identity = { playerId: string; secret: string; nickname: string; joined: boolean }
+// 一局的成绩。没传上去的先存进 store 的 pending，下次刷新榜单时补传
+type Run = { score: number; jumps: number; perfects: number; durationMs: number }
+// 只有这一个刷新算数：切榜或连着刷新时，先发出去、后回来的旧结果直接丢掉
+let boardSeq = 0
+let flushing: Promise<void> | null = null
 type Lb = {
   refresh: (tab?: BoardTab) => Promise<void>
   join: (nickname: string, game: Game | null, durationMs: number) => Promise<void>
@@ -139,36 +144,77 @@ export const register: Register = (on, options) => {
       const { value: b = NO_BOARD } = await $.state.get(BOARD)
       await $.state.set(BOARD, { ...b, ...change })
     }
+    const post = (id: Identity, run: Run) =>
+      call('POST', '/scores', {
+        player_id: id.playerId,
+        secret: id.secret,
+        score: run.score,
+        jumps: run.jumps,
+        perfects: run.perfects,
+        duration_ms: Math.max(0, Math.round(run.durationMs)),
+        client_version: VERSION,
+        lang: lang(),
+      })
+    // 网络断了、服务器忙、太快了：这类失败留着下次再传；分数不合理之类的直接丢掉
+    const isRetryable = (status: number) => status === 0 || status === 429 || status >= 500
+    const queue = async (runs: Run[]) => {
+      const pending = ((await $.store.get('pending')) ?? []) as Run[]
+      const all = [...pending, ...runs].filter(
+        (r, i, a) => a.findIndex(o => o.score === r.score && o.jumps === r.jumps && o.perfects === r.perfects) === i,
+      )
+      // 最多留 5 局，分高的优先
+      await $.store.set('pending', all.sort((a, b) => b.score - a.score).slice(0, 5))
+    }
+    const flush = (id: Identity): Promise<void> => {
+      flushing ??= (async () => {
+        const pending = ((await $.store.get('pending')) ?? []) as Run[]
+        if (pending.length === 0) return
+        const left: Run[] = []
+        for (const run of pending) {
+          const r = await post(id, run)
+          if (!r.ok && isRetryable(r.status)) left.push(run)
+        }
+        await $.store.set('pending', left)
+      })().finally(() => {
+        flushing = null
+      })
+      return flushing
+    }
     lb = {
       refresh: async tab => {
         const id = await identity()
         const { value: b = NO_BOARD } = await $.state.get(BOARD)
         const board = tab ?? b.tab
-        await patch({ tab: board, busy: true })
-        const r = await call('GET', `/leaderboard?board=${board}&limit=10&player_id=${id.playerId}`)
+        // 加入 / 退出可能是在另一个会话里做的：以 store 里的为准
+        if (!id.joined) {
+          await patch({ tab: board, joined: false, nickname: '', busy: false, slow: false })
+          return
+        }
+        const mine = ++boardSeq
+        await patch({ tab: board, joined: true, nickname: id.nickname, busy: true, slow: false })
+        $.clock.after(3000, () => {
+          if (mine === boardSeq) void patch({ slow: true })
+        })
+        await flush(id)
+        const path = `/leaderboard?board=${board}&limit=10&player_id=${id.playerId}`
+        let r = await call('GET', path)
+        if (r.status === 0 && mine === boardSeq) r = await call('GET', path)
+        if (mine !== boardSeq) return
         if (!r.ok || !r.data) {
-          await patch({ busy: false, status: tr().lbOffline })
+          await patch({ busy: false, slow: false, status: errorText(r.data, r.status) })
           return
         }
         const raw = (r.data.entries ?? []) as { rank: number; nickname: string; score: number; is_me?: boolean }[]
         const entries: BoardEntry[] = raw.map(e => ({ rank: e.rank, nickname: e.nickname, score: e.score, isMe: e.is_me === true }))
         const me = r.data.me as { rank: number; score: number } | null
-        await patch({ busy: false, status: '', entries, me: me ? { rank: me.rank, score: me.score } : null })
+        await patch({ busy: false, slow: false, status: '', entries, me: me ? { rank: me.rank, score: me.score } : null })
       },
+      // 一局结束：加入了就排进待传队列，刷新时一起传；没加入只同步一下加入状态
       submit: async (game, durationMs) => {
         const id = await identity()
-        if (!id.joined || game.score < 1) return
-        const r = await call('POST', '/scores', {
-          player_id: id.playerId,
-          secret: id.secret,
-          score: game.score,
-          jumps: game.jumps,
-          perfects: game.perfects,
-          duration_ms: Math.max(0, Math.round(durationMs)),
-          client_version: VERSION,
-          lang: lang(),
-        })
-        if (!r.ok) await patch({ status: errorText(r.data, r.status) })
+        if (id.joined && game.score >= 1) {
+          await queue([{ score: game.score, jumps: game.jumps, perfects: game.perfects, durationMs }])
+        }
         await lb?.refresh()
       },
       join: async (nickname, game, durationMs) => {
@@ -190,9 +236,13 @@ export const register: Register = (on, options) => {
         const saved = (r.data?.nickname as string | undefined) ?? name
         await $.store.set('lb', { ...id, nickname: saved, joined: true })
         await patch({ joined: true, nickname: saved, busy: false })
-        // 刚加入：把这一局也算上
-        if (game?.isOver) await lb?.submit(game, durationMs)
-        else await lb?.refresh()
+        // 刚加入：这一局和本机的最高纪录都算上
+        const runs: Run[] = []
+        const bestRun = (await $.store.get('bestRun')) as Run | undefined
+        if (bestRun) runs.push(bestRun)
+        if (game?.isOver && game.score >= 1) runs.push({ score: game.score, jumps: game.jumps, perfects: game.perfects, durationMs })
+        if (runs.length > 0) await queue(runs)
+        await lb?.refresh()
       },
       leave: async () => {
         const id = await identity()
@@ -201,7 +251,9 @@ export const register: Register = (on, options) => {
           await patch({ status: errorText(r.data, r.status) })
           return
         }
+        boardSeq += 1
         await $.store.set('lb', { ...id, nickname: '', joined: false })
+        await $.store.set('pending', [])
         await $.state.set(BOARD, { ...NO_BOARD, status: tr().lbLeft })
       },
     }
@@ -254,6 +306,9 @@ export const register: Register = (on, options) => {
         if (!g || g.isOver) return
         {
           const result = jump(g, held)
+          // 最高分存在 store 里，各个会话共用：别的会话刷新了纪录，这里也跟着显示
+          const lastBest = Number((await $.store.get('best')) ?? 0)
+          result.game.best = Math.max(result.game.best, lastBest)
           // 第一次落到特殊方块：提示一次它们有额外加分，之后不再提示
           const landedSpecial = result.jump.result === 'land' && g.blocks[g.cur + 1].kind in SPECIAL
           const specialExplained = (await $.store.get('specialExplained')) === true
@@ -282,11 +337,16 @@ export const register: Register = (on, options) => {
           // 音效：起跳马上响，落地 / 掉下去等小人到了再响
           const r = result.jump
           const target = g.blocks[g.cur + 1]
-          const lastBest = Number((await $.store.get('best')) ?? 0)
           const isRecord = result.game.isOver && result.game.score > lastBest
-          if (result.game.isOver && isRecord) await $.store.set('best', result.game.score)
-          if (result.game.isOver) void lb?.submit(result.game, now - (v.startedAt || v.chargeAt))
-          if (result.game.isOver) void lb?.refresh()
+          if (result.game.isOver) {
+            const durationMs = now - (v.startedAt || v.chargeAt)
+            if (isRecord) {
+              await $.store.set('best', result.game.score)
+              const { score, jumps, perfects } = result.game
+              await $.store.set('bestRun', { score, jumps, perfects, durationMs })
+            }
+            void lb?.submit(result.game, durationMs)
+          }
           if (!muted) {
             const root = `${$.plugin.root}/sounds`
             void $.process.run(['afplay', '-v', VOLUME, `${root}/jump.wav`]).catch(() => undefined)
@@ -478,9 +538,10 @@ export const register: Register = (on, options) => {
         isOverNow = false
         const seed = Math.floor(now % 2147483647)
         const seen = ((await $.store.get('seen')) ?? []) as string[]
+        const best = Math.max(game.best, Number((await $.store.get('best')) ?? 0))
         await $.state.set(VIEW, {
           ...EMPTY,
-          game: newGame(seed, game.best, queueFor(seen, seed).slice(0, QUEUE)),
+          game: newGame(seed, best, queueFor(seen, seed).slice(0, QUEUE)),
           pad: view.pad + 1,
         })
         await $.state.get(BOARD).then(({ value: b = NO_BOARD }) => $.state.set(BOARD, { ...b, status: '' }))
@@ -530,27 +591,42 @@ export const register: Register = (on, options) => {
           <Box flexDirection="column" borderStyle="round" borderDimColor paddingX={1}>
             {board.joined ? (
               <Box flexDirection="column">
-                <Box flexDirection="row" gap={2}>
-                  {(['today', 'week', 'all'] as const).map(tab => (
-                    <Button
-                      key={`tab-${tab}`}
-                      label={tr().lbTabs[tab]}
-                      plain
-                      dimColor={board.tab !== tab}
-                      onPress={() => void lb?.refresh(tab)}
-                    />
-                  ))}
+                {/* 当前榜单用醒目的字，其余两个是可点的按钮；右边是加载状态 */}
+                <Box flexDirection="row" justifyContent="space-between" alignItems="center">
+                  <Box flexDirection="row" gap={2} alignItems="center">
+                    {(['today', 'week', 'all'] as const).map(tab =>
+                      board.tab === tab ? (
+                        <Text key={`tab-${tab}`} bold color="#D97757">
+                          {tr().lbTabs[tab]}
+                        </Text>
+                      ) : (
+                        <Button
+                          key={`tab-${tab}`}
+                          label={tr().lbTabs[tab]}
+                          plain
+                          dimColor
+                          onPress={() => void lb?.refresh(tab)}
+                        />
+                      ),
+                    )}
+                  </Box>
+                  {board.busy && <Text dimColor>{board.slow ? tr().lbSlow : tr().lbBusy}</Text>}
                 </Box>
-                {board.busy && board.entries.length === 0 ? (
-                  <Text dimColor>{tr().lbLoading}</Text>
-                ) : board.entries.length === 0 ? (
-                  <Text dimColor>{tr().lbEmpty}</Text>
+                {board.entries.length === 0 ? (
+                  <Text dimColor>{board.busy ? tr().lbLoading : board.status !== '' ? '' : tr().lbEmpty}</Text>
                 ) : (
-                  board.entries.map(en => (
-                    <Text bold={en.isMe} color={en.isMe ? '#D97757' : undefined}>
-                      {`${String(en.rank).padStart(2, ' ')}. ${en.nickname}  ${en.score}`}
-                    </Text>
-                  ))
+                  <Box flexDirection="column" width={32}>
+                    {board.entries.map(en => (
+                      <Box key={`row-${en.rank}-${en.nickname}`} flexDirection="row" justifyContent="space-between">
+                        <Text bold={en.isMe} color={en.isMe ? '#D97757' : undefined} dimColor={board.busy && !en.isMe}>
+                          {`${String(en.rank).padStart(2, ' ')}  ${en.nickname}`}
+                        </Text>
+                        <Text bold={en.isMe} color={en.isMe ? '#D97757' : undefined} dimColor={board.busy && !en.isMe}>
+                          {String(en.score)}
+                        </Text>
+                      </Box>
+                    ))}
+                  </Box>
                 )}
                 <Box flexDirection="row" justifyContent="space-between">
                   <Text dimColor>{board.me ? tr().lbMe(board.me.rank, board.me.score) : tr().lbNotRanked}</Text>
@@ -571,7 +647,16 @@ export const register: Register = (on, options) => {
                 </Box>
               </Box>
             )}
-            {board.status !== '' && <Text color="#E76F51">{board.status}</Text>}
+            {board.status !== '' && (
+              <Box flexDirection="row" gap={2} alignItems="center">
+                <Text color="#E76F51">
+                  {board.status === tr().lbOffline && board.entries.length > 0 ? `${board.status}${tr().lbStale}` : board.status}
+                </Text>
+                {board.joined && !board.busy && board.status === tr().lbOffline && (
+                  <Button key="lb-retry" label={tr().lbRetry} plain onPress={() => void lb?.refresh()} />
+                )}
+              </Box>
+            )}
           </Box>
         )}
         <Box flexDirection="row" justifyContent="space-between" alignItems="center">

@@ -1,7 +1,19 @@
 import { test, expect, mock } from 'claude-code/testing'
 
-async function setup($: any, on: any) {
-  mock.store(on, {})
+async function setup($: any, on: any, store?: Record<string, unknown>) {
+  // 传入 store 时用一个测试能直接改的内存 store，模拟另一个会话写进去的东西
+  if (store) {
+    on('store.get', async (_: unknown, e: { key: string }) => ({ value: store[e.key] }) as never)
+    on('store.set', async (_: unknown, e: { key: string; value: unknown }) => {
+      store[e.key] = e.value
+      return { value: undefined } as never
+    })
+    on('store.delete', async (_: unknown, e: { key: string }) => {
+      delete store[e.key]
+      return { value: undefined } as never
+    })
+    on('store.keys', async () => ({ value: Object.keys(store) }) as never)
+  } else mock.store(on, {})
   const clock = mock.clock(on, { now: 1791080000000 })
   on('session.start', async () => ({ cwd: '/tmp' }) as never)
   on('command.register', async () => ({ value: undefined }) as never)
@@ -79,6 +91,46 @@ test('leaderboard: join after a lost round submits the score and shows the board
   console.log('calls', calls.join(' | '))
   console.log('board shows me', s.includes('跳跳王'), s.includes('tab-week'))
   expect(calls.some(c => c.startsWith('PUT /player'))).toBe(true)
+})
+
+const ME = { playerId: '00000000-0000-4000-8000-000000000001', secret: 'x'.repeat(43), nickname: '跳跳王', joined: true }
+
+test('leaderboard: joined in another session, a failed upload is retried, best follows the store', async ($, on) => {
+  const calls: string[] = []
+  let isDown = true
+  on('http.fetch', async (_, e) => {
+    const { url, init } = e as unknown as { url: string; init?: { method?: string } }
+    calls.push(`${init?.method ?? 'GET'} ${url.replace('https://agihunt.info/agent/v1/hop', '').split('?')[0]}`)
+    if (isDown) throw new Error('offline')
+    if (url.includes('/leaderboard')) {
+      return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ entries: [{ rank: 1, nickname: '跳跳王', score: 9, is_me: true }], me: { rank: 1, score: 9 } }) } } as never
+    }
+    return { value: { status: 200, ok: true, headers: {}, text: '{"ok":true}' } } as never
+  })
+  // 这个会话开局时还没加入；另一个会话随后加入了，并刷出了 146 的纪录
+  const store: Record<string, unknown> = {}
+  const { clock, ui } = await setup($, on, store)
+  store.lb = ME
+  store.best = 146
+  store.bestRun = { score: 146, jumps: 50, perfects: 30, durationMs: 90000 }
+  store.pending = [{ score: 146, jumps: 50, perfects: 30, durationMs: 90000 }]
+  await ui.input({ key: 'pad-0', text: ' ', kind: 'change' } as never)
+  await clock.advance(2500)
+  let s = JSON.stringify(await ui.drawn())
+  console.log('no nickname prompt', !s.includes('lb-nick'), 'offline + retry', s.includes('lb-retry'), 'best 146', /最高 146|Best 146/.test(s))
+  expect(s.includes('lb-nick')).toBe(false)
+  expect(s.includes('lb-retry')).toBe(true)
+  expect(/最高 146|Best 146/.test(s)).toBe(true)
+  // 网络恢复，点重试：先补传没传上去的成绩，再拉榜
+  isDown = false
+  calls.length = 0
+  await ui.press({ key: 'lb-retry' } as never)
+  await clock.advance(100)
+  s = JSON.stringify(await ui.drawn())
+  console.log('retry calls', calls.join(' | '))
+  expect(calls[0]).toBe('POST /scores')
+  expect(calls.includes('GET /leaderboard')).toBe(true)
+  expect(s.includes('lb-retry')).toBe(false)
 })
 
 test('timing: hint shows 5s into a turn, steps aside when Claude needs you, /hop prints nothing', async ($, on) => {

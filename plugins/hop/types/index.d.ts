@@ -86,6 +86,8 @@ export type Board = {
   // 连不上、昵称不合规这类提示
   status: string
   busy: boolean
+  // 加载超过 3 秒还没回来：提示网络慢，免得以为坏了
+  slow: boolean
 }
 
 declare module 'claude-code' {

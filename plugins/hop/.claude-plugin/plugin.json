@@ -1,6 +1,6 @@
 {
   "name": "hop",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Hop: a hop game to play while Claude works, with an AI coding tip on every block / 蹦一蹦：等 Claude 干活时玩的跳一跳，每块方块带一张 AI 编程知识卡片",
   "author": {
     "name": "AGI Hunt"

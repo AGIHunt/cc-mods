@@ -20,7 +20,7 @@ import perfect from './sounds/perfect.mp3'
 import record from './sounds/record.mp3'
 
 const ID = '@agihunt/dsh-hop'
-const VERSION = 'dsh-0.2.0'
+const VERSION = 'dsh-0.3.2'
 const LB_BASE = 'https://agihunt.info/agent/v1/hop'
 const KIND = 'hop'
 const HINT_AFTER_MS = 5000
@@ -162,7 +162,9 @@ let bodyShown = 0
 // ---------- 排行榜（和 Claude Code 版共用 agihunt.info 上的同一个榜）----------
 // 匿名身份：本机随机生成 player_id 和 secret，存在浏览器存储里；只有主动加入后才会联网
 type Identity = { playerId: string; secret: string; nickname: string; joined: boolean }
-type Board = { joined: boolean; nickname: string; tab: BoardTab; entries: BoardEntry[]; me: { rank: number; score: number } | null; status: string; busy: boolean }
+type Board = { joined: boolean; nickname: string; tab: BoardTab; entries: BoardEntry[]; me: { rank: number; score: number } | null; status: string; busy: boolean; slow: boolean }
+// 一局的成绩。没传上去的先存进 pending，下次刷新榜单时补传
+type Run = { score: number; jumps: number; perfects: number; durationMs: number }
 
 function identity(): Identity {
   const saved = load<Identity | null>('lb', null)
@@ -200,40 +202,82 @@ function errorText(data: Record<string, unknown> | null, status: number): string
   return tr().lbOffline
 }
 
+// 网络断了、服务器忙、太快了：这类失败留着下次再传；分数不合理之类的直接丢掉
+const isRetryable = (status: number): boolean => status === 0 || status === 429 || status >= 500
+const post = (id: Identity, run: Run) =>
+  call('POST', '/scores', {
+    player_id: id.playerId,
+    secret: id.secret,
+    score: run.score,
+    jumps: run.jumps,
+    perfects: run.perfects,
+    duration_ms: Math.max(0, Math.round(run.durationMs)),
+    client_version: VERSION,
+    lang: lang(),
+  })
+function queue(runs: Run[]): void {
+  const all = [...load<Run[]>('pending', []), ...runs].filter(
+    (r, i, a) => a.findIndex(o => o.score === r.score && o.jumps === r.jumps && o.perfects === r.perfects) === i,
+  )
+  // 最多留 5 局，分高的优先
+  save('pending', all.sort((x, y) => y.score - x.score).slice(0, 5))
+}
+let flushing: Promise<void> | null = null
+function flush(id: Identity): Promise<void> {
+  flushing ??= (async () => {
+    const pending = load<Run[]>('pending', [])
+    if (pending.length === 0) return
+    const left: Run[] = []
+    for (const run of pending) {
+      const r = await post(id, run)
+      if (!r.ok && isRetryable(r.status)) left.push(run)
+    }
+    save('pending', left)
+  })().finally(() => {
+    flushing = null
+  })
+  return flushing
+}
+
 function useBoard() {
   const known = identity()
-  const [board, setBoard] = useState<Board>({ joined: known.joined, nickname: known.nickname, tab: 'today', entries: [], me: null, status: '', busy: false })
+  const [board, setBoard] = useState<Board>({ joined: known.joined, nickname: known.nickname, tab: 'today', entries: [], me: null, status: '', busy: false, slow: false })
   const patch = (change: Partial<Board>): void => setBoard(b => ({ ...b, ...change }))
   const tabRef = useRef<BoardTab>('today')
+  // 只有最近一次刷新算数：切榜时先发出去、后回来的旧结果直接丢掉
+  const seq = useRef(0)
 
   const refresh = async (tab: BoardTab = tabRef.current): Promise<void> => {
     tabRef.current = tab
     const id = identity()
-    patch({ tab, busy: true })
-    const r = await call('GET', `/leaderboard?board=${tab}&limit=10&player_id=${id.playerId}`)
+    // 加入 / 退出可能是在另一个会话里做的：以存储里的为准
+    if (!id.joined) {
+      patch({ tab, joined: false, nickname: '', busy: false, slow: false })
+      return
+    }
+    const mine = ++seq.current
+    patch({ tab, joined: true, nickname: id.nickname, busy: true, slow: false })
+    setTimeout(() => {
+      if (mine === seq.current) patch({ slow: true })
+    }, 3000)
+    await flush(id)
+    const path = `/leaderboard?board=${tab}&limit=10&player_id=${id.playerId}`
+    let r = await call('GET', path)
+    if (r.status === 0 && mine === seq.current) r = await call('GET', path)
+    if (mine !== seq.current) return
     if (!r.ok || !r.data) {
-      patch({ busy: false, status: tr().lbOffline })
+      patch({ busy: false, slow: false, status: errorText(r.data, r.status) })
       return
     }
     const raw = (r.data.entries ?? []) as { rank: number; nickname: string; score: number; is_me?: boolean }[]
     const me = r.data.me as { rank: number; score: number } | null
-    patch({ busy: false, status: '', entries: raw.map(e => ({ rank: e.rank, nickname: e.nickname, score: e.score, isMe: e.is_me === true })), me: me ? { rank: me.rank, score: me.score } : null })
+    patch({ busy: false, slow: false, status: '', entries: raw.map(e => ({ rank: e.rank, nickname: e.nickname, score: e.score, isMe: e.is_me === true })), me: me ? { rank: me.rank, score: me.score } : null })
   }
 
+  // 一局结束：加入了就排进待传队列，刷新时一起传；没加入只同步一下加入状态
   const submit = async (game: Game, durationMs: number): Promise<void> => {
     const id = identity()
-    if (!id.joined || game.score < 1) return
-    const r = await call('POST', '/scores', {
-      player_id: id.playerId,
-      secret: id.secret,
-      score: game.score,
-      jumps: game.jumps,
-      perfects: game.perfects,
-      duration_ms: Math.max(0, Math.round(durationMs)),
-      client_version: VERSION,
-      lang: lang(),
-    })
-    if (!r.ok) patch({ status: errorText(r.data, r.status) })
+    if (id.joined && game.score >= 1) queue([{ score: game.score, jumps: game.jumps, perfects: game.perfects, durationMs }])
     await refresh()
   }
 
@@ -250,9 +294,13 @@ function useBoard() {
     const saved = (r.data?.nickname as string | undefined) ?? name
     save('lb', { ...id, nickname: saved, joined: true })
     patch({ joined: true, nickname: saved, busy: false })
-    // 刚加入：把这一局也算上
-    if (game.isOver) await submit(game, durationMs)
-    else await refresh()
+    // 刚加入：这一局和本机的最高纪录都算上
+    const runs: Run[] = []
+    const bestRun = load<Run | null>('bestRun', null)
+    if (bestRun) runs.push(bestRun)
+    if (game.isOver && game.score >= 1) runs.push({ score: game.score, jumps: game.jumps, perfects: game.perfects, durationMs })
+    if (runs.length > 0) queue(runs)
+    await refresh()
   }
 
   const leave = async (): Promise<void> => {
@@ -262,8 +310,10 @@ function useBoard() {
       patch({ status: errorText(r.data, r.status) })
       return
     }
+    seq.current += 1
     save('lb', { ...id, nickname: '', joined: false })
-    setBoard({ joined: false, nickname: '', tab: tabRef.current, entries: [], me: null, status: tr().lbLeft, busy: false })
+    save('pending', [])
+    setBoard({ joined: false, nickname: '', tab: tabRef.current, entries: [], me: null, status: tr().lbLeft, busy: false, slow: false })
   }
 
   return { board, refresh, submit, join, leave }
@@ -299,25 +349,35 @@ function BoardView(props: { lb: ReturnType<typeof useBoard>; game: Game; duratio
     )
   }
   const tabs: BoardTab[] = ['today', 'week', 'all']
+  const accent = '#4D6BFE'
   return (
     <div style={box}>
-      <div style={{ display: 'flex', gap: 14 }}>
+      {/* 当前榜单加粗、带下划线；右边是加载状态 */}
+      <div style={{ display: 'flex', gap: 14, alignItems: 'baseline' }}>
         {tabs.map(t => (
-          <button key={t} type="button" onClick={() => void refresh(t)} style={{ ...linkBtn, fontWeight: board.tab === t ? 700 : 400, opacity: board.tab === t ? 1 : 0.6 }}>
+          <button
+            key={t}
+            type="button"
+            onClick={() => void refresh(t)}
+            style={{ ...linkBtn, fontWeight: board.tab === t ? 700 : 400, opacity: board.tab === t ? 1 : 0.55, color: board.tab === t ? accent : 'inherit', borderBottom: `2px solid ${board.tab === t ? accent : 'transparent'}`, paddingBottom: 2 }}
+          >
             {tr().lbTabs[t]}
           </button>
         ))}
+        <span style={{ ...dim, marginLeft: 'auto', fontSize: '0.9em' }}>{board.busy ? (board.slow ? tr().lbSlow : tr().lbBusy) : ''}</span>
       </div>
       {board.entries.length === 0 ? (
-        <span style={dim}>{board.busy ? tr().lbLoading : board.status || tr().lbEmpty}</span>
+        <span style={dim}>{board.busy ? tr().lbLoading : board.status ? '' : tr().lbEmpty}</span>
       ) : (
-        board.entries.map(e => (
-          <div key={`${e.rank}-${e.nickname}`} style={{ display: 'flex', gap: 8, color: e.isMe ? '#4D6BFE' : undefined, fontWeight: e.isMe ? 700 : 400 }}>
-            <span style={{ width: 22, textAlign: 'right' }}>{e.rank}.</span>
-            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.nickname}</span>
-            <span>{e.score}</span>
-          </div>
-        ))
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, opacity: board.busy ? 0.5 : 1, transition: 'opacity .2s' }}>
+          {board.entries.map(e => (
+            <div key={`${e.rank}-${e.nickname}`} style={{ display: 'flex', gap: 8, color: e.isMe ? accent : undefined, fontWeight: e.isMe ? 700 : 400 }}>
+              <span style={{ width: 22, textAlign: 'right', opacity: e.isMe ? 1 : 0.6 }}>{e.rank}</span>
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.nickname}</span>
+              <span style={{ fontVariantNumeric: 'tabular-nums' }}>{e.score}</span>
+            </div>
+          ))}
+        </div>
       )}
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
         <span style={dim}>{board.me ? tr().lbMe(board.me.rank, board.me.score) : tr().lbNotRanked}</span>
@@ -325,7 +385,16 @@ function BoardView(props: { lb: ReturnType<typeof useBoard>; game: Game; duratio
           {tr().lbLeave}
         </button>
       </div>
-      {board.status && board.entries.length > 0 ? <span style={dim}>{board.status}</span> : null}
+      {board.status ? (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', color: '#E76F51' }}>
+          <span>{board.status === tr().lbOffline && board.entries.length > 0 ? `${board.status}${tr().lbStale}` : board.status}</span>
+          {!board.busy && board.status === tr().lbOffline ? (
+            <button type="button" onClick={() => void refresh()} style={{ ...linkBtn, color: accent }}>
+              {tr().lbRetry}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -442,10 +511,19 @@ function HopBody(props: { sessionId: string }): React.ReactNode {
       const seen = load<string[]>('seen', [])
       if (!seen.includes(target.fact)) save('seen', [...seen, target.fact])
     }
+    // 最高分存在浏览器存储里，各个会话共用：别的会话刷新了纪录，这里也跟着显示
     const lastBest = load('best', 0)
+    result.game.best = Math.max(result.game.best, lastBest)
     const isRecord = result.game.isOver && result.game.score > lastBest
-    if (isRecord) save('best', result.game.score)
-    if (result.game.isOver) void lb.submit(result.game, now - startedAt).then(() => lb.refresh())
+    if (result.game.isOver) {
+      const durationMs = now - startedAt
+      if (isRecord) {
+        save('best', result.game.score)
+        const { score, jumps, perfects } = result.game
+        save('bestRun', { score, jumps, perfects, durationMs })
+      }
+      void lb.submit(result.game, durationMs)
+    }
     const landedSpecial = result.jump.result === 'land' && target.kind in SPECIAL
     const explained = load('specialExplained', false)
     if (landedSpecial && !explained) save('specialExplained', true)
